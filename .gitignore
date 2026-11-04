@@ -11,3 +11,11 @@ dist/
 # Logs
 logs/
 *.log
+.env
+.env.*
+!.env.example
+.venv/
+backend/.venv/
+# Python generated files
+__pycache__/
+*.py[cod]

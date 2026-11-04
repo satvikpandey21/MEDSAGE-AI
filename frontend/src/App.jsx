@@ -4,6 +4,7 @@ import Topbar from "./components/layout/Topbar";
 import DashboardView from "./components/dashboard/DashboardView";
 import SettingsView from "./components/settings/SettingsView";
 import PatientProfileView from "./components/profile/PatientProfileView";
+import PrescriptionView from "./components/prescriptions/PrescriptionView";
 import SectionPlaceholder from "./components/common/SectionPlaceholder";
 import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
@@ -311,6 +312,8 @@ function App() {
               currentUser={currentUser}
               onProfileUpdated={handleProfileUpdated}
             />
+              ) : activeNav === "prescriptions" ? (
+            <PrescriptionView />
           ) : activeNav === "settings" ? (
             <SettingsView
               currentUser={currentUser}
