@@ -1,0 +1,74 @@
+/**
+ * MedSage AI - Global Design Tokens
+ * 
+ * NOTE FOR BEGINNERS:
+ * CSS variables allow us to maintain a cohesive healthcare color scheme.
+ * If you ever want to tweak the primary teal/blue shade or card roundness,
+ * you can change it here in one place and the entire app will update!
+ */
+
+:root {
+  /* Brand Healthcare Colors */
+  --color-primary: #0284c7;        /* Medical Sky Blue */
+  --color-primary-hover: #0369a1;  /* Darker Sky Blue */
+  --color-primary-light: #e0f2fe;  /* Ice Blue tint */
+  --color-teal: #0d9488;           /* Healthcare Teal */
+  --color-teal-hover: #0f766e;
+  --color-teal-light: #ccfbf1;     /* Soft Mint/Teal tint */
+
+  /* Neutral Surface & Background Colors */
+  --bg-app: #f8fafc;              /* Slate 50 background */
+  --bg-card: #ffffff;             /* Pure White card background */
+  --bg-card-subtle: #f1f5f9;      /* Slate 100 subtle element background */
+  --border-color: #e2e8f0;        /* Slate 200 border */
+  --border-light: #f1f5f9;
+
+  /* Typography Colors */
+  --text-main: #0f172a;           /* Deep Slate - Headings & Main Text */
+  --text-secondary: #475569;      /* Slate 600 - Secondary copy */
+  --text-muted: #64748b;          /* Slate 500 - Metadata & timestamps */
+  --text-light: #94a3b8;          /* Slate 400 - Placeholder text */
+
+  /* Status Colors */
+  --status-success: #10b981;
+  --status-success-bg: #ecfdf5;
+  --status-success-border: #a7f3d0;
+  --status-success-text: #065f46;
+
+  --status-warning: #f59e0b;
+  --status-warning-bg: #fffbeb;
+  --status-warning-border: #fde68a;
+  --status-warning-text: #92400e;
+
+  --status-danger: #ef4444;
+  --status-danger-bg: #fef2f2;
+  --status-danger-border: #fecaca;
+  --status-danger-text: #991b1b;
+
+  --status-info: #0284c7;
+  --status-info-bg: #f0f9ff;
+  --status-info-border: #bae6fd;
+  --status-info-text: #0369a1;
+
+  /* Elevation Shadows */
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.07), 0 1px 2px -1px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+
+  /* Rounded Corners */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Layout Dimensions */
+  --sidebar-width: 270px;
+  --topbar-height: 72px;
+
+  /* Typography Families */
+  --font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
