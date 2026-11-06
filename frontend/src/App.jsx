@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import Sidebar from "./components/layout/Sidebar";
 import Topbar from "./components/layout/Topbar";
+import ScheduleView from "./components/schedule/ScheduleView";
 import DashboardView from "./components/dashboard/DashboardView";
 import SettingsView from "./components/settings/SettingsView";
 import PatientProfileView from "./components/profile/PatientProfileView";
@@ -9,6 +10,7 @@ import SectionPlaceholder from "./components/common/SectionPlaceholder";
 import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
 import Icon from "./components/common/Icons";
+import BillCheckerView from "./components/bills/BillCheckerView";
 import {
   getInitialSession,
   subscribeToAuthChanges,
@@ -31,7 +33,7 @@ import "./App.css";
 
 /**
  * Main MedSage AI Application Component (Powered by Supabase Auth)
- * 
+ *
  * NOTE FOR BEGINNERS:
  * This component coordinates:
  * 1. Real Supabase Authentication State (Login, Registration, Cloud Session)
@@ -52,7 +54,12 @@ function App() {
   const [registrationNotice, setRegistrationNotice] = useState("");
 
   // Navigation state within the platform (defaults to 'dashboard')
-  const [activeNav, setActiveNav] = useState("dashboard");
+  const [activeNav, setActiveNav] = useState(() => {
+  return localStorage.getItem("medsage_active_nav") || "dashboard";
+});
+useEffect(() => {
+  localStorage.setItem("medsage_active_nav", activeNav);
+}, [activeNav]);
 
   // Mobile drawer state (open / closed)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -151,6 +158,8 @@ function App() {
     setCurrentUser(null);
     setAuthView("login");
     setActiveNav("dashboard");
+    localStorage.removeItem("medsage_active_nav");
+    localStorage.setItem("medsage_active_nav", "dashboard");
     setRegistrationNotice("");
     setPrefilledEmail("");
     window.history.pushState(null, "", window.location.pathname);
@@ -314,7 +323,11 @@ function App() {
             />
               ) : activeNav === "prescriptions" ? (
             <PrescriptionView />
-          ) : activeNav === "settings" ? (
+            ) : activeNav === "bill-checker" ? (
+            <BillCheckerView />
+            ) : activeNav === "schedule" ? (
+            <ScheduleView />
+            ) : activeNav === "settings" ? (
             <SettingsView
               currentUser={currentUser}
               onLogout={handleLogout}

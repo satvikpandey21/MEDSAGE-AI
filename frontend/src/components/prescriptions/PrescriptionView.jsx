@@ -17,6 +17,11 @@ export default function PrescriptionView() {
   const [error, setError] = useState("");
   const [analyzingId, setAnalyzingId] = useState(null);
   const [analysisResults, setAnalysisResults] = useState({});
+  const [savedBills, setSavedBills] = useState([]);
+const [selectedBills, setSelectedBills] = useState({});
+const [verificationResults, setVerificationResults] = useState({});
+const [verifyingId, setVerifyingId] = useState(null);
+const [visibleAnalysisIds, setVisibleAnalysisIds] = useState({});
 
   async function getUserId() {
     const { data, error } = await supabase.auth.getUser();
@@ -42,6 +47,16 @@ export default function PrescriptionView() {
       if (error) throw error;
 
       setFiles(data || []);
+
+const savedResults = {};
+
+(data || []).forEach((file) => {
+  if (file.analysis_result) {
+    savedResults[file.id] = file.analysis_result;
+  }
+});
+
+setAnalysisResults(savedResults);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -51,7 +66,52 @@ export default function PrescriptionView() {
 
   useEffect(() => {
     loadPrescriptions();
+     loadSavedBills();
+  loadVerifications();
   }, []);
+  async function loadSavedBills() {
+  try {
+    const userId = await getUserId();
+
+    const { data, error } = await supabase
+      .from("patient_bills")
+      .select("*")
+      .eq("patient_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    setSavedBills(data || []);
+  } catch (err) {
+    console.error("LOAD SAVED BILLS ERROR:", err);
+  }
+}
+
+async function loadVerifications() {
+  try {
+    const userId = await getUserId();
+
+    const { data, error } = await supabase
+      .from("prescription_bill_verifications")
+      .select("*")
+      .eq("patient_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const results = {};
+
+    (data || []).forEach((item) => {
+      if (!results[item.prescription_id]) {
+        results[item.prescription_id] = item;
+      }
+    });
+
+    setVerificationResults(results);
+  } catch (err) {
+    console.error("LOAD VERIFICATIONS ERROR:", err);
+  }
+}
 
   async function handleUpload(event) {
     const selectedFiles = Array.from(event.target.files || []);
@@ -121,62 +181,215 @@ export default function PrescriptionView() {
       event.target.value = "";
     }
   }
-async function handleAnalyze(file) {
+
+  async function handleAnalyze(file) {
+    try {
+      setAnalyzingId(file.id);
+      setError("");
+      setMessage("");
+
+      // Get prescription file from Supabase Storage
+      const { data: signedData, error: signedError } =
+        await supabase.storage
+          .from("prescriptions")
+          .createSignedUrl(file.file_path, 120);
+
+      if (signedError) throw signedError;
+
+      // Download file
+      const fileResponse = await fetch(signedData.signedUrl);
+
+      if (!fileResponse.ok) {
+        throw new Error("Unable to download prescription.");
+      }
+
+      const blob = await fileResponse.blob();
+
+      // Prepare file for backend
+      const formData = new FormData();
+
+      formData.append("file", blob, file.file_name);
+
+      // Send file to Gemini AI backend
+      const response = await fetch(
+        "http://127.0.0.1:8000/analyze-prescription",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.detail || "Prescription analysis failed."
+        );
+      }
+
+      // Save AI analysis permanently in Supabase
+const userId = await getUserId();
+
+const { error: saveError } = await supabase
+  .from("patient_prescriptions")
+  .update({
+    analysis_result: result.data,
+    analysis_status: "analyzed",
+  })
+  .eq("id", file.id)
+  .eq("patient_id", userId);
+
+if (saveError) {
+  throw saveError;
+}
+
+// Update frontend state
+setAnalysisResults((previous) => ({
+  ...previous,
+  [file.id]: result.data,
+}));
+
+// Show analysis result automatically
+setVisibleAnalysisIds((previous) => ({
+  ...previous,
+  [file.id]: true,
+}));
+
+setMessage("AI analysis completed and saved successfully!");
+
+    } catch (err) {
+      setError(err.message || "AI analysis failed.");
+    } finally {
+      setAnalyzingId(null);
+    }
+  }
+async function handleVerifyWithBill(file) {
   try {
-    setAnalyzingId(file.id);
     setError("");
     setMessage("");
 
-    // Get prescription file from Supabase Storage
-    const { data: signedData, error: signedError } =
-      await supabase.storage
-        .from("prescriptions")
-        .createSignedUrl(file.file_path, 120);
+    const billId = selectedBills[file.id];
 
-    if (signedError) throw signedError;
-
-    // Download file
-    const fileResponse = await fetch(signedData.signedUrl);
-
-    if (!fileResponse.ok) {
-      throw new Error("Unable to download prescription.");
+    if (!billId) {
+      setError("Please select a pharmacy bill first.");
+      return;
     }
 
-    const blob = await fileResponse.blob();
+    const prescription = analysisResults[file.id];
 
-    // Prepare file for backend
-    const formData = new FormData();
+    if (!prescription) {
+      setError("Please analyze the prescription first.");
+      return;
+    }
 
-    formData.append("file", blob, file.file_name);
+    const bill = savedBills.find((item) => item.id === billId);
 
-    // Send file to Gemini AI backend
-    const response = await fetch(
-      "http://127.0.0.1:8000/analyze-prescription",
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
+    if (!bill || !bill.analysis_result) {
+      setError("Selected bill has no saved analysis.");
+      return;
+    }
 
-    const result = await response.json();
+    const prescriptionMedicines = prescription.medicines || [];
+    const billMedicines = bill.analysis_result.medicines || [];
 
-    if (!response.ok) {
-      throw new Error(
-        result.detail || "Prescription analysis failed."
+    if (!prescriptionMedicines.length) {
+      setError("No medicines found in this prescription to verify.");
+      return;
+    }
+
+    setVerifyingId(file.id);
+
+    const normalize = (value) =>
+      String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    const comparisons = prescriptionMedicines.map((medicine) => {
+      const medicineName = normalize(medicine.name);
+
+      const billMedicine = billMedicines.find(
+        (item) => normalize(item.name) === medicineName
       );
-    }
 
-    setAnalysisResults((previous) => ({
+      if (!medicineName || !billMedicine) {
+        return {
+          prescription_medicine: medicine.name || null,
+          bill_medicine: billMedicine?.name || null,
+          status: "mismatch",
+          reason: "Medicine name not found as an exact match on the bill.",
+        };
+      }
+
+      const differences = [];
+      const uncertainties = [];
+
+      if (
+        medicine.uncertain_fields?.length ||
+        billMedicine.uncertain_fields?.length
+      ) {
+        uncertainties.push("Some extracted fields are uncertain.");
+      }
+
+      ["strength", "dosage_form"].forEach((field) => {
+        const prescriptionValue = medicine[field];
+        const billValue = billMedicine[field];
+
+        if (!prescriptionValue || !billValue) {
+          if (prescriptionValue || billValue) {
+            uncertainties.push(`${field} is missing on one side.`);
+          }
+        } else if (
+          normalize(prescriptionValue) !== normalize(billValue)
+        ) {
+          differences.push(`${field} does not match.`);
+        }
+      });
+
+      return {
+        prescription_medicine: medicine.name,
+        bill_medicine: billMedicine.name,
+        status: differences.length
+          ? "mismatch"
+          : uncertainties.length
+          ? "needs_review"
+          : "matched",
+        differences,
+        uncertainties,
+      };
+    });
+
+    const status = comparisons.some((item) => item.status === "mismatch")
+      ? "mismatch"
+      : comparisons.some((item) => item.status === "needs_review")
+      ? "needs_review"
+      : "matched";
+
+    const userId = await getUserId();
+
+    const { data, error } = await supabase
+      .from("prescription_bill_verifications")
+      .insert({
+        patient_id: userId,
+        prescription_id: file.id,
+        bill_id: bill.id,
+        comparison_result: { medicines: comparisons },
+        status,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    setVerificationResults((previous) => ({
       ...previous,
-      [file.id]: result.data,
+      [file.id]: data,
     }));
 
-    setMessage("AI analysis completed successfully!");
+    setMessage(`Verification completed: ${status.replace("_", " ").toUpperCase()}`);
 
   } catch (err) {
-    setError(err.message || "AI analysis failed.");
+    console.error("VERIFICATION ERROR:", err);
+    setError(err.message || "Verification failed.");
   } finally {
-    setAnalyzingId(null);
+    setVerifyingId(null);
   }
 }
   async function handleView(file) {
@@ -228,6 +441,56 @@ async function handleAnalyze(file) {
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   }
 
+  // Display extracted information in a reusable format
+  function renderItems(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return (
+        <p style={styles.notFound}>
+          No information mentioned in prescription.
+        </p>
+      );
+    }
+
+    return items.map((item, index) => (
+      <div key={index} style={styles.resultItem}>
+        {typeof item === "string" ? (
+          <p style={{ margin: 0 }}>{item}</p>
+        ) : (
+          Object.entries(item).map(([key, value]) => {
+            if (
+              value === null ||
+              value === undefined ||
+              value === "" ||
+              key === "uncertain_fields"
+            ) {
+              return null;
+            }
+
+            return (
+              <p key={key}>
+                <strong>
+                  {key.replace(/_/g, " ")}:
+                </strong>{" "}
+                {Array.isArray(value)
+                  ? value.join(", ")
+                  : String(value)}
+              </p>
+            );
+          })
+        )}
+
+        {typeof item === "object" &&
+          Array.isArray(item.uncertain_fields) &&
+          item.uncertain_fields.length > 0 && (
+            <p style={{ color: "#b45309" }}>
+              âš ï¸ Needs verification:{" "}
+              {item.uncertain_fields.join(", ")}
+            </p>
+          )}
+      </div>
+    ));
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -240,13 +503,15 @@ async function handleAnalyze(file) {
       </div>
 
       <div style={styles.uploadBox}>
-        <div style={styles.uploadIcon}>📄</div>
+        <div style={styles.uploadIcon}>ðŸ“„</div>
         <h3>Upload Prescription</h3>
         <p>Choose prescription images or PDF files.</p>
-        <p style={styles.note}>JPG, PNG or PDF · Maximum 10 MB per file</p>
+        <p style={styles.note}>
+          JPG, PNG or PDF Â· Maximum 10 MB per file
+        </p>
 
         <label style={styles.uploadButton}>
-          {uploading ? "Uploading..." : "＋ Select Files"}
+          {uploading ? "Uploading..." : "ï¼‹ Select Files"}
           <input
             type="file"
             accept=".jpg,.jpeg,.png,.pdf"
@@ -258,7 +523,7 @@ async function handleAnalyze(file) {
         </label>
 
         <label style={styles.cameraButton}>
-          📷 Capture Prescription
+          ðŸ“· Capture Prescription
           <input
             type="file"
             accept="image/*"
@@ -282,7 +547,7 @@ async function handleAnalyze(file) {
         <p>Loading prescriptions...</p>
       ) : files.length === 0 ? (
         <div style={styles.empty}>
-          <div style={{ fontSize: 35 }}>📁</div>
+          <div style={{ fontSize: 35 }}>ðŸ“</div>
           <h3>No prescriptions uploaded yet</h3>
           <p>Your uploaded prescriptions will appear here.</p>
         </div>
@@ -292,13 +557,13 @@ async function handleAnalyze(file) {
             <div key={file.id} style={styles.fileCard}>
               <div style={styles.fileInfo}>
                 <span style={styles.fileIcon}>
-                  {file.file_type === "application/pdf" ? "📕" : "🖼️"}
+                  {file.file_type === "application/pdf" ? "ðŸ“•" : "ðŸ–¼ï¸"}
                 </span>
 
                 <div>
                   <strong>{file.file_name}</strong>
                   <p style={styles.fileMeta}>
-                    {formatSize(file.file_size)} ·{" "}
+                    {formatSize(file.file_size)} Â·{" "}
                     {new Date(file.created_at).toLocaleDateString()}
                   </p>
                   <span style={styles.status}>
@@ -308,31 +573,236 @@ async function handleAnalyze(file) {
               </div>
 
               <div style={styles.actions}>
+                <button
+                  style={styles.viewButton}
+                  onClick={() => handleAnalyze(file)}
+                  disabled={analyzingId === file.id}
+                >
+                  {analyzingId === file.id
+                    ? "Analyzing..."
+                    : "ðŸ¤– Analyze with AI"}
+                </button>
 
-  <button
-    style={styles.viewButton}
-    onClick={() => handleAnalyze(file)}
-    disabled={analyzingId === file.id}
-  >
-    {analyzingId === file.id
-      ? "Analyzing..."
-      : "🤖 Analyze with AI"}
-  </button>
+                <button
+                  style={styles.viewButton}
+                  onClick={() => handleView(file)}
+                >
+                  View
+                </button>
 
-  <button
-    style={styles.viewButton}
-    onClick={() => handleView(file)}
-  >
-    View
-  </button>
-
-  <button
-    style={styles.deleteButton}
-    onClick={() => handleDelete(file)}
-  >
-    Delete
-  </button>
+                <button
+                  style={styles.deleteButton}
+                  onClick={() => handleDelete(file)}
+                >
+                  Delete
+                </button>
               </div>
+
+              {/* Complete AI Prescription Analysis Results */}
+              {analysisResults[file.id] && visibleAnalysisIds[file.id] && (
+                <div style={styles.analysisBox}>
+
+                  <h3 style={styles.analysisTitle}>
+                    ðŸ¤– Complete AI Prescription Analysis
+                  </h3>
+
+                  {(() => {
+                    const result = analysisResults[file.id];
+
+                    return (
+                      <>
+                        {/* Patient and Doctor Details */}
+                        <h4>ðŸ‘¤ Patient & Doctor Details</h4>
+
+                        <p>
+                          <strong>Patient:</strong>{" "}
+                          {result.patient_name || "Not identified"}
+                        </p>
+
+                        <p>
+                          <strong>Doctor:</strong>{" "}
+                          {result.doctor_name || "Not identified"}
+                        </p>
+
+                        <p>
+                          <strong>Hospital:</strong>{" "}
+                          {result.hospital_name || "Not identified"}
+                        </p>
+
+                        <p>
+                          <strong>Prescription Date:</strong>{" "}
+                          {result.prescription_date || "Not identified"}
+                        </p>
+
+                        {/* Symptoms */}
+                        <h4>ðŸ©º Symptoms & Complaints</h4>
+                        {renderItems(result.symptoms)}
+
+                        {/* Diagnosis */}
+                        <h4>ðŸ” Diagnosis & Assessment</h4>
+                        {renderItems(result.diagnosis)}
+
+                        {/* Medicines */}
+                        <h4>ðŸ’Š Prescribed Medicines</h4>
+
+                        {Array.isArray(result.medicines) &&
+                        result.medicines.length > 0 ? (
+                          result.medicines.map((medicine, index) => (
+                            <div
+                              key={index}
+                              style={styles.resultItem}
+                            >
+                              <strong>
+                                {index + 1}.{" "}
+                                {medicine.name ||
+                                  "Medicine name unclear"}
+                              </strong>
+
+                              <p>
+                                Active Ingredient:{" "}
+                                {medicine.active_ingredient ||
+                                  "Not identified"}
+                              </p>
+
+                              <p>
+                                Strength:{" "}
+                                {medicine.strength || "Not identified"}
+                              </p>
+
+                              <p>
+                                Dosage:{" "}
+                                {medicine.dosage || "Not identified"}
+                              </p>
+
+                              <p>
+                                Route:{" "}
+                                {medicine.route || "Not identified"}
+                              </p>
+
+                              <p>
+                                Frequency:{" "}
+                                {medicine.frequency || "Not identified"}
+                              </p>
+
+                              <p>
+                                Duration:{" "}
+                                {medicine.duration || "Not identified"}
+                              </p>
+
+                              {Array.isArray(medicine.uncertain_fields) &&
+                                medicine.uncertain_fields.length > 0 && (
+                                  <p style={{ color: "#b45309" }}>
+                                    âš ï¸ Needs verification:{" "}
+                                    {medicine.uncertain_fields.join(", ")}
+                                  </p>
+                                )}
+                            </div>
+                          ))
+                        ) : (
+                          <p style={styles.notFound}>
+                            No medicines prescribed or mentioned.
+                          </p>
+                        )}
+{/* Prescription Bill Verification */}
+<div style={styles.resultItem}>
+  <h4>ðŸ§¾ Verify with Pharmacy Bill</h4>
+
+  <select
+    value={selectedBills[file.id] || ""}
+    onChange={(e) =>
+      setSelectedBills((prev) => ({
+        ...prev,
+        [file.id]: e.target.value,
+      }))
+    }
+    style={{
+      padding: "10px",
+      width: "100%",
+      borderRadius: "6px",
+      marginBottom: "12px",
+    }}
+  >
+    <option value="">Select an analyzed pharmacy bill</option>
+
+    {savedBills
+      .filter((bill) => bill.analysis_result)
+      .map((bill) => (
+        <option key={bill.id} value={bill.id}>
+          {bill.file_name} â€” {new Date(bill.created_at).toLocaleDateString()}
+        </option>
+      ))}
+  </select>
+
+  <button
+    style={styles.viewButton}
+    onClick={() => handleVerifyWithBill(file)}
+    disabled={verifyingId === file.id}
+  >
+    {verifyingId === file.id ? "Verifying..." : "Verify with Bill"}
+  </button>
+
+  {verificationResults[file.id] && (
+    <div style={{ marginTop: "15px" }}>
+      <h4>
+        Verification Status:{" "}
+        {verificationResults[file.id].status.toUpperCase()}
+      </h4>
+
+      {(verificationResults[file.id].comparison_result?.medicines || []).map(
+        (item, index) => (
+          <div key={index} style={styles.resultItem}>
+            <strong>{item.prescription_medicine}</strong>
+            <p>Status: {item.status.toUpperCase()}</p>
+
+            {item.differences?.map((text, i) => (
+              <p key={i}>âŒ {text}</p>
+            ))}
+
+            {item.uncertainties?.map((text, i) => (
+              <p key={i}>âš ï¸ {text}</p>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  )}
+</div>
+                        {/* Non Medicine Treatment */}
+                        <h4>ðŸƒ Exercises & Non-Medicine Treatment</h4>
+                        {renderItems(result.non_medicine_treatment)}
+
+                        {/* Care Instructions */}
+                        <h4>ðŸ›Œ Care Instructions</h4>
+                        {renderItems(result.care_instructions)}
+
+                        {/* Precautions */}
+                        <h4>âš ï¸ Precautions</h4>
+                        {renderItems(result.precautions)}
+
+                        {/* Follow Up */}
+                        <h4>ðŸ“… Follow-up Instructions</h4>
+                        {renderItems(result.follow_up)}
+
+                        {/* Additional Notes */}
+                        <h4>ðŸ“ Additional Notes</h4>
+                        {renderItems(result.additional_notes)}
+
+                        {/* Uncertain Information */}
+                        <h4>â“ Information Requiring Review</h4>
+                        {renderItems(result.uncertain_information)}
+
+                        <div style={styles.warningBox}>
+                          âš ï¸ AI-extracted information must be verified
+                          against the original prescription by the patient
+                          and a qualified healthcare professional.
+                          Do not use unverified results for medical decisions.
+                        </div>
+                      </>
+                    );
+                  })()}
+
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -472,5 +942,41 @@ const styles = {
     background: "#fee2e2",
     color: "#b91c1c",
     cursor: "pointer",
+  },
+
+  // New AI analysis styles
+  analysisBox: {
+    width: "100%",
+    flexBasis: "100%",
+    marginTop: "8px",
+    padding: "18px",
+    background: "#f0f7ff",
+    border: "1px solid #cfe2ff",
+    borderRadius: "12px",
+    color: "#1e293b",
+    boxSizing: "border-box",
+  },
+  analysisTitle: {
+    marginTop: 0,
+    color: "#1d4ed8",
+  },
+  resultItem: {
+    background: "#ffffff",
+    padding: "14px",
+    marginBottom: "12px",
+    borderRadius: "8px",
+    border: "1px solid #dbeafe",
+  },
+  notFound: {
+    color: "#64748b",
+  },
+  warningBox: {
+    background: "#fff7ed",
+    color: "#9a3412",
+    padding: "12px",
+    borderRadius: "8px",
+    marginTop: "18px",
+    fontSize: "13px",
+    fontWeight: "600",
   },
 };

@@ -16,36 +16,94 @@ client = genai.Client(api_key=api_key)
 async def analyze_prescription(image_bytes: bytes, mime_type: str):
 
     prompt = """
-    You are a medical prescription information extraction assistant.
+    You are an advanced medical prescription understanding
+    and information extraction assistant.
 
-    Carefully examine the uploaded prescription.
+    Carefully examine the ENTIRE uploaded prescription.
+    Do not focus only on medicines.
 
-    Extract the following information:
-    1. Patient name (if visible)
-    2. Doctor name (if visible)
-    3. Prescription date (if visible)
-    4. Medicine name
-    5. Active ingredient (if identifiable)
-    6. Strength
-    7. Dosage instructions
-    8. Route of administration
-    9. Frequency
-    10. Duration
+    Extract ALL information actually written by the doctor.
+
+    Return the following sections:
+
+    1. PATIENT AND DOCTOR DETAILS
+    - Patient name
+    - Doctor name
+    - Hospital or clinic
+    - Prescription date
+
+    2. SYMPTOMS AND COMPLAINTS
+    - Pain
+    - Swelling
+    - Fever
+    - Discomfort
+    - Other symptoms explicitly mentioned
+
+    3. DIAGNOSIS AND ASSESSMENT
+    - Medical condition or diagnosis written by the doctor
+    - Clinical observations, if mentioned
+
+    4. MEDICINES
+    For each medicine extract:
+    - Name
+    - Active ingredient, if identifiable
+    - Strength
+    - Dosage
+    - Route
+    - Frequency
+    - Duration
+    - Uncertain fields
+
+    5. NON-MEDICINE TREATMENT
+    Extract instructions such as:
+    - Exercises
+    - Physiotherapy
+    - Ice application
+    - Heat application
+    - Massage
+    - Other treatment procedures
+
+    6. CARE AND PRECAUTIONS
+    - Bed rest
+    - Activity restrictions
+    - Diet instructions
+    - Precautions
+    - Other lifestyle instructions
+
+    7. FOLLOW-UP
+    - Follow-up date
+    - Recommended tests
+    - Review instructions
+    - Other follow-up notes
 
     IMPORTANT SAFETY RULES:
-    - Never guess unclear handwriting.
-    - Never invent medicine names or doses.
-    - Mark unreadable information as uncertain.
-    - Preserve the original instructions.
-    - Do not provide diagnosis or treatment advice.
-    - Do not recommend changing any medicine.
 
-    Return ONLY valid JSON in this format:
+    - Examine the complete prescription, including handwritten notes.
+    - Never guess unclear handwriting.
+    - Never invent symptoms, diagnosis, medicines or instructions.
+    - Extract only information explicitly written in the prescription.
+    - Preserve the original meaning of instructions.
+    - If a section contains no information, return an empty array
+      or null as appropriate.
+    - If no medicine is prescribed, return an empty medicines array.
+    - Do not return a fake medicine with name "Not Identified".
+    - Mark unreadable or uncertain information clearly.
+    - Do not generate new treatment recommendations.
+    - Do not recommend changing medicines or treatment.
+    - This is information extraction, not medical diagnosis.
+
+    Return ONLY valid JSON in this exact structure:
 
     {
         "patient_name": null,
         "doctor_name": null,
+        "hospital_name": null,
         "prescription_date": null,
+
+        "symptoms": [],
+
+        "diagnosis": [],
+
         "medicines": [
             {
                 "name": "",
@@ -58,13 +116,33 @@ async def analyze_prescription(image_bytes: bytes, mime_type: str):
                 "uncertain_fields": []
             }
         ],
+
+        "non_medicine_treatment": [
+            {
+                "type": "",
+                "instruction": "",
+                "frequency": null,
+                "duration": null,
+                "uncertain_fields": []
+            }
+        ],
+
+        "care_instructions": [],
+
+        "precautions": [],
+
+        "follow_up": [],
+
         "additional_notes": [],
+
+        "uncertain_information": [],
+
         "requires_human_verification": true
     }
     """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.5-flash-lite",
         contents=[
             prompt,
             genai.types.Part.from_bytes(
