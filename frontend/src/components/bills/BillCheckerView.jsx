@@ -280,7 +280,7 @@ async function handleDeleteBill(bill) {
       marginBottom: "25px",
     }}
   >
-    <h3>ðŸ“‚ Saved Pharmacy Bills</h3>
+    <h3>📂 Saved Pharmacy Bills</h3>
 
     {savedBills.map((bill) => (
       <div

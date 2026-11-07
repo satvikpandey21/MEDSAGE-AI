@@ -10,6 +10,8 @@ import SectionPlaceholder from "./components/common/SectionPlaceholder";
 import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
 import Icon from "./components/common/Icons";
+import CaretakerView from "./components/Caretaker/CaretakerView";
+import VoiceAssistantView from "./components/voice/VoiceAssistantView";
 import BillCheckerView from "./components/bills/BillCheckerView";
 import {
   getInitialSession,
@@ -327,6 +329,10 @@ useEffect(() => {
             <BillCheckerView />
             ) : activeNav === "schedule" ? (
             <ScheduleView />
+            ) : activeNav === "ai-assistant" ? (
+            <VoiceAssistantView />
+            ) : activeNav === "caretaker" ? (
+  <CaretakerView currentUser={currentUser} />
             ) : activeNav === "settings" ? (
             <SettingsView
               currentUser={currentUser}

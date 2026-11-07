@@ -483,7 +483,7 @@ async function handleVerifyWithBill(file) {
           Array.isArray(item.uncertain_fields) &&
           item.uncertain_fields.length > 0 && (
             <p style={{ color: "#b45309" }}>
-              âš ï¸ Needs verification:{" "}
+              ⚠️ Needs verification:{" "}
               {item.uncertain_fields.join(", ")}
             </p>
           )}
@@ -503,15 +503,15 @@ async function handleVerifyWithBill(file) {
       </div>
 
       <div style={styles.uploadBox}>
-        <div style={styles.uploadIcon}>ðŸ“„</div>
+        <div style={styles.uploadIcon}>📄</div>
         <h3>Upload Prescription</h3>
         <p>Choose prescription images or PDF files.</p>
         <p style={styles.note}>
-          JPG, PNG or PDF Â· Maximum 10 MB per file
+          JPG, PNG or PDF · Maximum 10 MB per file
         </p>
 
         <label style={styles.uploadButton}>
-          {uploading ? "Uploading..." : "ï¼‹ Select Files"}
+          {uploading ? "Uploading..." : "＋ Select Files"}
           <input
             type="file"
             accept=".jpg,.jpeg,.png,.pdf"
@@ -523,7 +523,7 @@ async function handleVerifyWithBill(file) {
         </label>
 
         <label style={styles.cameraButton}>
-          ðŸ“· Capture Prescription
+          📷 Capture Prescription
           <input
             type="file"
             accept="image/*"
@@ -547,7 +547,7 @@ async function handleVerifyWithBill(file) {
         <p>Loading prescriptions...</p>
       ) : files.length === 0 ? (
         <div style={styles.empty}>
-          <div style={{ fontSize: 35 }}>ðŸ“</div>
+          <div style={{ fontSize: 35 }}>📁</div>
           <h3>No prescriptions uploaded yet</h3>
           <p>Your uploaded prescriptions will appear here.</p>
         </div>
@@ -557,13 +557,13 @@ async function handleVerifyWithBill(file) {
             <div key={file.id} style={styles.fileCard}>
               <div style={styles.fileInfo}>
                 <span style={styles.fileIcon}>
-                  {file.file_type === "application/pdf" ? "ðŸ“•" : "ðŸ–¼ï¸"}
+                  {file.file_type === "application/pdf" ? "📕" : "🖼️"}
                 </span>
 
                 <div>
                   <strong>{file.file_name}</strong>
                   <p style={styles.fileMeta}>
-                    {formatSize(file.file_size)} Â·{" "}
+                    {formatSize(file.file_size)} ·{" "}
                     {new Date(file.created_at).toLocaleDateString()}
                   </p>
                   <span style={styles.status}>
@@ -580,7 +580,7 @@ async function handleVerifyWithBill(file) {
                 >
                   {analyzingId === file.id
                     ? "Analyzing..."
-                    : "ðŸ¤– Analyze with AI"}
+                    : "🤖 Analyze with AI"}
                 </button>
 
                 <button
@@ -603,7 +603,7 @@ async function handleVerifyWithBill(file) {
                 <div style={styles.analysisBox}>
 
                   <h3 style={styles.analysisTitle}>
-                    ðŸ¤– Complete AI Prescription Analysis
+                    🤖 Complete AI Prescription Analysis
                   </h3>
 
                   {(() => {
@@ -612,7 +612,7 @@ async function handleVerifyWithBill(file) {
                     return (
                       <>
                         {/* Patient and Doctor Details */}
-                        <h4>ðŸ‘¤ Patient & Doctor Details</h4>
+                        <h4>👤 Patient & Doctor Details</h4>
 
                         <p>
                           <strong>Patient:</strong>{" "}
@@ -635,15 +635,15 @@ async function handleVerifyWithBill(file) {
                         </p>
 
                         {/* Symptoms */}
-                        <h4>ðŸ©º Symptoms & Complaints</h4>
+                        <h4>🩺 Symptoms & Complaints</h4>
                         {renderItems(result.symptoms)}
 
                         {/* Diagnosis */}
-                        <h4>ðŸ” Diagnosis & Assessment</h4>
+                        <h4>🔍 Diagnosis & Assessment</h4>
                         {renderItems(result.diagnosis)}
 
                         {/* Medicines */}
-                        <h4>ðŸ’Š Prescribed Medicines</h4>
+                        <h4>💊 Prescribed Medicines</h4>
 
                         {Array.isArray(result.medicines) &&
                         result.medicines.length > 0 ? (
@@ -692,7 +692,7 @@ async function handleVerifyWithBill(file) {
                               {Array.isArray(medicine.uncertain_fields) &&
                                 medicine.uncertain_fields.length > 0 && (
                                   <p style={{ color: "#b45309" }}>
-                                    âš ï¸ Needs verification:{" "}
+                                    ⚠️ Needs verification:{" "}
                                     {medicine.uncertain_fields.join(", ")}
                                   </p>
                                 )}
@@ -705,7 +705,7 @@ async function handleVerifyWithBill(file) {
                         )}
 {/* Prescription Bill Verification */}
 <div style={styles.resultItem}>
-  <h4>ðŸ§¾ Verify with Pharmacy Bill</h4>
+  <h4>🧾 Verify with Pharmacy Bill</h4>
 
   <select
     value={selectedBills[file.id] || ""}
@@ -759,7 +759,7 @@ async function handleVerifyWithBill(file) {
             ))}
 
             {item.uncertainties?.map((text, i) => (
-              <p key={i}>âš ï¸ {text}</p>
+              <p key={i}>⚠️ {text}</p>
             ))}
           </div>
         )
@@ -768,31 +768,31 @@ async function handleVerifyWithBill(file) {
   )}
 </div>
                         {/* Non Medicine Treatment */}
-                        <h4>ðŸƒ Exercises & Non-Medicine Treatment</h4>
+                        <h4>🏃 Exercises & Non-Medicine Treatment</h4>
                         {renderItems(result.non_medicine_treatment)}
 
                         {/* Care Instructions */}
-                        <h4>ðŸ›Œ Care Instructions</h4>
+                        <h4>🛌 Care Instructions</h4>
                         {renderItems(result.care_instructions)}
 
                         {/* Precautions */}
-                        <h4>âš ï¸ Precautions</h4>
+                        <h4>⚠️ Precautions</h4>
                         {renderItems(result.precautions)}
 
                         {/* Follow Up */}
-                        <h4>ðŸ“… Follow-up Instructions</h4>
+                        <h4>📅 Follow-up Instructions</h4>
                         {renderItems(result.follow_up)}
 
                         {/* Additional Notes */}
-                        <h4>ðŸ“ Additional Notes</h4>
+                        <h4>📝 Additional Notes</h4>
                         {renderItems(result.additional_notes)}
 
                         {/* Uncertain Information */}
-                        <h4>â“ Information Requiring Review</h4>
+                        <h4>❓ Information Requiring Review</h4>
                         {renderItems(result.uncertain_information)}
 
                         <div style={styles.warningBox}>
-                          âš ï¸ AI-extracted information must be verified
+                          ⚠️ AI-extracted information must be verified
                           against the original prescription by the patient
                           and a qualified healthcare professional.
                           Do not use unverified results for medical decisions.
