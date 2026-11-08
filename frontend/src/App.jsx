@@ -8,8 +8,10 @@ import PatientProfileView from "./components/profile/PatientProfileView";
 import PrescriptionView from "./components/prescriptions/PrescriptionView";
 import SectionPlaceholder from "./components/common/SectionPlaceholder";
 import LoginPage from "./components/auth/LoginPage";
+import MedicineStockView from "./components/stock/MedicineStockView";
 import RegisterPage from "./components/auth/RegisterPage";
 import Icon from "./components/common/Icons";
+import useDashboardData from "./hooks/useDashboardData";
 import CaretakerView from "./components/Caretaker/CaretakerView";
 import VoiceAssistantView from "./components/voice/VoiceAssistantView";
 import BillCheckerView from "./components/bills/BillCheckerView";
@@ -46,6 +48,20 @@ import "./App.css";
 function App() {
   // Authentication state managed directly via Supabase
   const [currentUser, setCurrentUser] = useState(null);
+  const dashboardData = useDashboardData(Boolean(currentUser));
+
+const todayAdherence =
+  dashboardData.schedule.length > 0 &&
+  !dashboardData.loading &&
+  !dashboardData.error
+    ? Math.round(
+        (dashboardData.schedule.filter(
+          (dose) => dose.status === "taken"
+        ).length /
+          dashboardData.schedule.length) *
+          100
+      )
+    : null;
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   // Auth screen toggling: 'login' | 'register'
@@ -281,7 +297,29 @@ useEffect(() => {
       />
     );
   }
+const dynamicNavItems = navItems.map((item) => {
+  if (item.id === "prescriptions") {
+    return {
+      ...item,
+      badge: dashboardData.loading || dashboardData.error
+        ? null
+        : String(dashboardData.metrics.totalPrescriptions),
+    };
+  }
 
+  if (item.id === "stock") {
+    const count = dashboardData.stockAlerts.length;
+
+    return {
+      ...item,
+      badge: dashboardData.loading || dashboardData.error
+        ? null
+        : count > 0 ? `${count} Low` : null,
+    };
+  }
+
+  return item;
+});
   // ============================================================
   // SCENARIO 2: USER IS LOGGED IN -> RENDER PROTECTED PLATFORM
   // ============================================================
@@ -291,6 +329,7 @@ useEffect(() => {
     <div className="app-layout">
       {/* 1. Left Sidebar Navigation */}
       <Sidebar
+      navItems={dynamicNavItems}
         activeNav={activeNav}
         onNavSelect={(navId) => setActiveNav(navId)}
         isOpen={isSidebarOpen}
@@ -301,23 +340,20 @@ useEffect(() => {
       {/* 2. Main Application Content Area */}
       <div className="app-main">
         {/* Top Header Bar */}
-        <Topbar
-          onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
-          currentUser={currentUser}
-          onNavSelect={(navId) => setActiveNav(navId)}
-        />
+       <Topbar
+  onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+  currentUser={currentUser}
+  onNavSelect={(navId) => setActiveNav(navId)}
+  adherenceRate={todayAdherence}
+/>
 
         {/* Dynamic Page Content */}
         <main className="page-container">
           {activeNav === "dashboard" ? (
-            <DashboardView
-              metrics={dashboardMetrics}
-              schedule={schedule}
-              stockAlerts={lowStockMedications}
-              activities={activities}
-              onMarkTaken={handleMarkTaken}
-              currentUser={currentUser}
-            />
+           <DashboardView
+  currentUser={currentUser}
+  dashboardData={dashboardData}
+/>
           ) : activeNav === "profile" ? (
             <PatientProfileView
               currentUser={currentUser}
@@ -329,6 +365,8 @@ useEffect(() => {
             <BillCheckerView />
             ) : activeNav === "schedule" ? (
             <ScheduleView />
+            ) : activeNav === "stock" ? (
+  <MedicineStockView />
             ) : activeNav === "ai-assistant" ? (
             <VoiceAssistantView />
             ) : activeNav === "caretaker" ? (

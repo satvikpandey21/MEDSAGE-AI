@@ -504,31 +504,7 @@ useEffect(() => {
             notificationPermission === "unsupported" ? "This browser does not support notifications." :
               notificationPermission === "granted" ? "You will receive dose alerts while this page is open." : "Permission not enabled yet."}
         </span>
-        <h4>Today's Doses</h4>
-        {todayDoses.length === 0 ? <p>No doses scheduled for today.</p> : todayDoses.map((dose) => {
-          const key = `${dose.medicine.id}-${dose.scheduledDate.getTime()}`;
-          const statusColor = dose.status === "taken" ? "#15803d" : dose.status === "skipped" ? "#64748b" : dose.status === "missed" ? "#dc2626" : dose.status === "due" ? "#b45309" : "#2563eb";
-          return (
-            <div key={key} style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginTop: "9px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-                <strong>{dose.medicine.medicine_name} — {dose.medicine.dosage}</strong>
-                <strong style={{ color: statusColor }}>{dose.status.toUpperCase()}</strong>
-              </div>
-              <p style={{ margin: "6px 0" }}>Scheduled: {formatTime(dose.scheduledDate)}</p>
-              {!dose.existingLog && dose.status !== "missed" && (
-                <>
-                  <button type="button" disabled={!!actionLoading} style={{ ...buttonStyle, background: "#16a34a", color: "white" }} onClick={() => recordDose(dose, "taken")}>
-                    {actionLoading === key ? "Saving..." : "✓ Taken"}
-                  </button>
-                  <button type="button" disabled={!!actionLoading} style={{ ...buttonStyle, background: "#e2e8f0", color: "#334155" }} onClick={() => recordDose(dose, "skipped")}>
-                    Skipped
-                  </button>
-                </>
-              )}
-              {dose.status === "missed" && !dose.existingLog && <span style={{ color: "#dc2626", fontSize: "13px" }}>Automatically recorded as missed after 30 minutes.</span>}
-            </div>
-          );
-        })}
+       
       </div>
 
       <div style={cardStyle}>

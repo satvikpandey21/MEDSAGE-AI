@@ -2,11 +2,15 @@ import Icon from "../common/Icons";
 
 /**
  * Medication Schedule Component
- * 
+ *
  * Lists today's doses ordered by time. Allows the patient or caretaker
  * to mark pending doses as taken.
  */
-export default function MedicationSchedule({ schedule, onMarkTaken }) {
+export default function MedicationSchedule({
+  schedule,
+  onRecordDose,
+  recordingDoseId,
+}) {
   const takenCount = schedule.filter((item) => item.status === "taken").length;
   const totalCount = schedule.length;
 
@@ -32,14 +36,27 @@ export default function MedicationSchedule({ schedule, onMarkTaken }) {
             color: takenCount === totalCount ? "#065f46" : "#0369a1",
           }}
         >
-          {takenCount === totalCount ? "All Doses Taken" : `${totalCount - takenCount} Remaining`}
+        {totalCount === 0
+  ? "No Doses Scheduled"
+  : takenCount === totalCount
+  ? "All Doses Taken"
+  : `${totalCount - takenCount} Not Taken`}
         </span>
       </div>
 
       <div className="schedule-list">
         {schedule.map((item) => {
           const isTaken = item.status === "taken";
-          const isDueSoon = item.status === "due-soon";
+const isDueSoon = item.status === "due-soon";
+const isUpcoming = item.status === "upcoming";
+const isSkipped = item.status === "skipped";
+const isMissed = item.status === "missed";
+const isRecording = recordingDoseId === item.id;
+const canRecord =
+  !item.hasRecordedLog &&
+  !isTaken &&
+  !isSkipped &&
+  !isMissed;
 
           return (
             <div
@@ -66,38 +83,74 @@ export default function MedicationSchedule({ schedule, onMarkTaken }) {
                 </div>
               </div>
 
-              <div className="schedule-action-zone">
-                {isTaken && (
-                  <span className="status-badge taken">
-                    <Icon name="check" size={14} color="#065f46" />
-                    Taken
-                  </span>
-                )}
+             <div className="schedule-action-zone">
+  {isTaken && (
+    <span className="status-badge taken">
+      <Icon name="check" size={14} color="#065f46" />
+      Taken
+    </span>
+  )}
 
-                {isDueSoon && (
-                  <>
-                    <span className="status-badge due-soon">
-                      <Icon name="clock" size={14} color="#92400e" />
-                      Due Soon
-                    </span>
-                    <button
-                      className="mark-taken-btn"
-                      onClick={() => onMarkTaken(item.id)}
-                      title="Log this dose as completed"
-                    >
-                      <Icon name="check" size={14} color="#ffffff" />
-                      Mark Taken
-                    </button>
-                  </>
-                )}
+  {isSkipped && (
+    <span className="status-badge upcoming">
+      Skipped
+    </span>
+  )}
 
-                {item.status === "upcoming" && (
-                  <span className="status-badge upcoming">
-                    <Icon name="clock" size={14} color="#64748b" />
-                    Upcoming
-                  </span>
-                )}
-              </div>
+  {isMissed && (
+    <span
+      className="status-badge"
+      style={{
+        background: "#fee2e2",
+        color: "#b91c1c",
+      }}
+    >
+      Missed
+    </span>
+  )}
+
+  {canRecord && (
+    <>
+      {isDueSoon && (
+        <span className="status-badge due-soon">
+          Due
+        </span>
+      )}
+
+      {isUpcoming && (
+        <span className="status-badge upcoming">
+          Upcoming
+        </span>
+      )}
+
+      <button
+        type="button"
+        className="mark-taken-btn"
+        disabled={Boolean(recordingDoseId)}
+        onClick={() => onRecordDose(item, "taken")}
+      >
+        <Icon name="check" size={14} color="#ffffff" />
+        {isRecording ? "Saving..." : "Taken"}
+      </button>
+
+      <button
+        type="button"
+        disabled={Boolean(recordingDoseId)}
+        onClick={() => onRecordDose(item, "skipped")}
+        style={{
+          padding: "7px 12px",
+          borderRadius: 7,
+          border: "1px solid #cbd5e1",
+          background: "#f1f5f9",
+          color: "#334155",
+          cursor: "pointer",
+        }}
+      >
+        Skipped
+      </button>
+    </>
+  )}
+</div>
             </div>
           );
         })}

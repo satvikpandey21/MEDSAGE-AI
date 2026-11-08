@@ -1,5 +1,5 @@
 import Icon from "../common/Icons";
-import { patientProfile } from "../../data/mockData";
+
 
 /**
  * Topbar Header Component
@@ -8,8 +8,13 @@ import { patientProfile } from "../../data/mockData";
  * The Topbar provides quick global actions like searching, opening the
  * mobile navigation, and checking patient adherence at a glance.
  */
-export default function Topbar({ onToggleSidebar, currentUser, onNavSelect }) {
-  const displayName = currentUser?.name || patientProfile.name;
+export default function Topbar({
+  onToggleSidebar,
+  currentUser,
+  onNavSelect,
+  adherenceRate = null,
+}) {
+  const displayName = currentUser?.name || "Patient";
   const initials = displayName
     .split(" ")
     .map((n) => n[0])
@@ -42,10 +47,15 @@ export default function Topbar({ onToggleSidebar, currentUser, onNavSelect }) {
 
       <div className="topbar-right">
         {/* Quick Adherence Badge */}
-        <div className="topbar-adherence-pill" title="30-day medication compliance rate">
-          <Icon name="checkCircle" size={16} color="#0d9488" />
-          <span>{patientProfile.adherenceRate}% Adherence</span>
-        </div>
+        <div
+  className="topbar-adherence-pill"
+  title="Today's medication adherence"
+>
+  <Icon name="checkCircle" size={16} color="#0d9488" />
+  <span>
+    {adherenceRate === null ? "—" : `${adherenceRate}%`} Adherence Today
+  </span>
+</div>
 
         {/* Notifications Icon */}
         <button
