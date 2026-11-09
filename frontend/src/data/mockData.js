@@ -162,11 +162,11 @@ export const recentActivities = [
 export const navItems = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", badge: null },
   { id: "profile", label: "Patient Profile", icon: "user", badge: null },
-  { id: "prescriptions", label: "My Prescriptions", icon: "prescriptions", badge: "5" },
+  { id: "prescriptions", label: "My Prescriptions", icon: "prescriptions", badge: null },
   { id: "schedule", label: "Medicine Schedule", icon: "schedule", badge: null },
-  { id: "stock", label: "Medicine Stock", icon: "stock", badge: "2 Low" },
-  { id: "bill-checker", label: "Pharmacy Bill Checker", icon: "billChecker", badge: "AI" },
-  { id: "ai-assistant", label: "AI Health Assistant", icon: "aiAssistant", badge: "New" },
+  { id: "stock", label: "Medicine Stock", icon: "stock", badge: null },
+  { id: "bill-checker", label: "Pharmacy Bill Checker", icon: "billChecker", badge: null },
+  { id: "ai-assistant", label: "AI Health Assistant", icon: "aiAssistant", badge: null },
   { id: "caretaker", label: "Caretaker", icon: "caretaker", badge: null },
   { id: "settings", label: "Settings", icon: "settings", badge: null },
 ];

@@ -1,0 +1,8 @@
+-r requirements.txt
+# CPU only; no paddlepaddle-gpu. Keep these in a dedicated Python 3.11 env.
+paddleocr==3.3.0
+paddlepaddle==3.2.0
+numpy==1.26.4
+# Compatible Windows imports; newer native wheels were blocked by Application Control.
+chardet==5.2.0
+ujson==5.10.0

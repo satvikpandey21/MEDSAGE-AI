@@ -78,7 +78,7 @@ const canRecord =
                   </div>
                   <span className="schedule-instruction">{item.instruction}</span>
                   <span className="schedule-doctor">
-                    Prescribed for: {item.prescribedFor} • {item.doctor}
+                    Prescribed for: {item.prescribedFor} â€¢ {item.doctor}
                   </span>
                 </div>
               </div>

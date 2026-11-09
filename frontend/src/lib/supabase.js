@@ -50,6 +50,16 @@ export const supabase = createClient(
   supabaseUrl || "https://placeholder-project.supabase.co",
   supabasePublishableKey || "placeholder-publishable-key",
   {
+    global: {
+      fetch: async (input, init) => {
+        const response = await globalThis.fetch(input, init);
+        const method = (init?.method || "GET").toUpperCase();
+        if (response.ok && ["POST", "PATCH", "DELETE", "PUT"].includes(method)) {
+          window.dispatchEvent(new Event("medsage:data-changed"));
+        }
+        return response;
+      },
+    },
     auth: {
       persistSession: true,
       autoRefreshToken: true,

@@ -1,3 +1,4 @@
+import { updateStockSafely } from "../../lib/updateStockSafely";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
@@ -14,19 +15,6 @@ const localDateTime = (dateKey, time) => {
 
 const formatTime = (date) =>
   date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-const getStockDeduction = (dosage, stockUnit) => {
-  const match = String(dosage || "").match(/(\d+(?:\.\d+)?)\s*(tablets?|capsules?|ml|units?)/i);
-  if (!match) return 1;
-  const enteredUnit = match[2].toLowerCase();
-  const expectedUnit = String(stockUnit || "units").toLowerCase();
-  const sameUnit =
-    (enteredUnit.startsWith("tablet") && expectedUnit === "tablets") ||
-    (enteredUnit.startsWith("capsule") && expectedUnit === "capsules") ||
-    (enteredUnit === "ml" && expectedUnit === "ml") ||
-    (enteredUnit.startsWith("unit") && expectedUnit === "units");
-  return sameUnit ? Number(match[1]) : 1;
-};
 
 export default function ScheduleView() {
   const [medicines, setMedicines] = useState([]);
@@ -125,7 +113,11 @@ export default function ScheduleView() {
         ...verification,
         prescription: prescriptions.find((item) => item.id === verification.prescription_id),
       }));
-      setVerifiedPrescriptions(combined.filter((item) => item.prescription?.analysis_result));
+      setVerifiedPrescriptions(combined.filter((item) => item.prescription?.analysis_result &&
+        !item.prescription.ocr_review_required &&
+        item.prescription.analysis_status !== "pending_review" &&
+        item.prescription.analysis_result.analysis_status !== "pending_review" &&
+        item.prescription.analysis_result.extraction_source !== "paddleocr"));
     } catch (err) {
       console.error("LOAD VERIFIED PRESCRIPTIONS ERROR:", err);
     }
@@ -386,41 +378,21 @@ useEffect(() => {
 
   async function recordDose(dose, status) {
     if (!patientId) return;
-    const actionKey = `${dose.medicine.id}-${dose.scheduledDate.getTime()}`;
-    setActionLoading(actionKey);
+    setActionLoading(`${dose.medicine.id}-${dose.scheduledDate.getTime()}`);
     setError("");
     setMessage("");
 
     try {
-      const { error: logError } = await supabase.from("medication_dose_logs").insert({
-        patient_id: patientId,
-        schedule_id: dose.medicine.id,
-        scheduled_for: dose.scheduledDate.toISOString(),
-        status,
+      const { error: recordError } = await supabase.rpc("record_medication_dose", {
+        p_schedule_id: dose.medicine.id,
+        p_scheduled_for: dose.scheduledDate.toISOString(),
+        p_status: status,
       });
-
-      if (logError) {
-        if (logError.code === "23505") throw new Error("This dose has already been recorded.");
-        throw logError;
+      if (recordError) {
+        if (recordError.code === "23505") throw new Error("This dose has already been recorded.");
+        throw recordError;
       }
-
-      if (status === "taken" && dose.medicine.stock_quantity !== null && dose.medicine.stock_quantity !== undefined) {
-        const currentStock = Number(dose.medicine.stock_quantity);
-        const deduction = getStockDeduction(dose.medicine.dosage, dose.medicine.stock_unit);
-        const nextStock = Math.max(0, currentStock - deduction);
-        const { error: stockError } = await supabase
-          .from("medication_schedules")
-          .update({ stock_quantity: nextStock })
-          .eq("id", dose.medicine.id)
-          .eq("patient_id", patientId);
-        if (stockError) {
-          setMessage("Dose recorded, but stock could not be updated: " + stockError.message);
-        } else {
-          setMessage(`Dose marked ${status}. Stock reduced by ${deduction}; remaining ${nextStock} ${dose.medicine.stock_unit || "units"}.`);
-        }
-      } else {
-        setMessage(`Dose marked ${status}.`);
-      }
+      setMessage(`Dose marked ${status}.`);
 
       await refreshAll();
     } catch (err) {
@@ -436,17 +408,12 @@ useEffect(() => {
       setError("Enter a valid stock quantity.");
       return;
     }
-    const { error: updateError } = await supabase
-      .from("medication_schedules")
-      .update({ stock_quantity: Number(value) })
-      .eq("id", medicine.id)
-      .eq("patient_id", patientId);
-    if (updateError) setError(updateError.message);
-    else {
+    try {
+      await updateStockSafely(supabase, medicine, patientId, { stock_quantity: Number(value) });
       setMessage(`${medicine.medicine_name} stock updated.`);
       setStockDrafts((previous) => ({ ...previous, [medicine.id]: "" }));
       await refreshAll();
-    }
+    } catch (err) { setError(err.message); }
   }
 
   async function deleteMedicine(id) {

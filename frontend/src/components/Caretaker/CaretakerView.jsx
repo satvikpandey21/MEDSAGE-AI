@@ -1,5 +1,60 @@
 import { useEffect, useState } from "react";
+import CaretakerMedicineEditor from "./CaretakerMedicineEditor";
 import { supabase } from "../../lib/supabase";
+
+function ApprovedCaretakers() {
+  const [caretakers, setCaretakers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      try {
+        // The RPC derives the patient from auth.uid(); no client-supplied IDs.
+        const { data, error: rpcError } = await supabase.rpc(
+          "get_my_approved_caretakers"
+        );
+        if (rpcError) throw rpcError;
+        if (active) setCaretakers(data || []);
+      } catch {
+        if (active) setError("Unable to load approved caretakers. Please try refreshing.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    load();
+    return () => { active = false; };
+  }, []);
+
+  return (
+    <section style={styles.card} aria-labelledby="approved-caretakers-heading">
+      <h3 id="approved-caretakers-heading">Approved Caretakers</h3>
+      {loading ? <p role="status">Loading approved caretakers...</p> : error ? (
+        <p role="alert" style={styles.error}>{error}</p>
+      ) : caretakers.length === 0 ? (
+        <p>No approved caretaker connections yet.</p>
+      ) : caretakers.map((caretaker) => {
+        const date = caretaker.connection_date
+          ? new Date(caretaker.connection_date)
+          : null;
+        return (
+          <div key={caretaker.link_id} style={{ ...styles.patientBox, overflowWrap: "anywhere" }}>
+            <h4>{caretaker.full_name?.trim() || "Name not available"}</h4>
+            <p>Contact number: {caretaker.phone?.trim() || "Not available"}</p>
+            <p>Status: Approved</p>
+            <p>
+              {caretaker.date_source === "approved_at" ? "Approved on" : "Connection created"}:{" "}
+              {date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "Not available"}
+            </p>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
 
 export default function CaretakerView({ currentUser }) {
   const userId = currentUser?.rawId || currentUser?.id;
@@ -18,12 +73,17 @@ export default function CaretakerView({ currentUser }) {
   const [doseLogs, setDoseLogs] = useState([]);
 
   useEffect(() => {
-    if (userId) loadCaretakerData();
+    if (!userId) return;
+    loadCaretakerData();
+    const refresh = () => loadCaretakerData({ background: true });
+    const timer = setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
   }, [userId]);
 
-  async function loadCaretakerData() {
+  async function loadCaretakerData({ background = false } = {}) {
     try {
-      setLoading(true);
+      if (!background) setLoading(true);
       setError("");
 
       // Patient's pending requests
@@ -80,9 +140,10 @@ export default function CaretakerView({ currentUser }) {
         setDoseLogs([]);
       }
     } catch (err) {
+      setMedicines([]);
       setError(err.message || "Unable to load caretaker data.");
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }
 
@@ -259,6 +320,8 @@ export default function CaretakerView({ currentUser }) {
         )}
       </section>
 
+      <ApprovedCaretakers key={userId} />
+
       {/* CARETAKER SECTION */}
       <section style={styles.card}>
         <h3>🔗 Connect with a Patient</h3>
@@ -310,6 +373,7 @@ export default function CaretakerView({ currentUser }) {
                   .map((medicine) => (
                     <div key={medicine.id} style={styles.medicine}>
                       <strong>{medicine.medicine_name}</strong>
+                      <CaretakerMedicineEditor key={`${medicine.id}-${medicine.caretaker_edit_version}`} medicine={medicine} onSaved={loadCaretakerData} />
                       <p>Dosage: {medicine.dosage}</p>
                       <p>Frequency: {medicine.frequency}</p>
                       <p>

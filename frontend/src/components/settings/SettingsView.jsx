@@ -11,6 +11,8 @@ import Icon from "../common/Icons";
 export default function SettingsView({ currentUser, onLogout }) {
   // Confirmation modal state
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
@@ -396,6 +398,7 @@ export default function SettingsView({ currentUser, onLogout }) {
                   <Icon name="logout" size={18} />
                 </div>
                 <h2 className="auth-modal-title">Confirm Logout</h2>
+                {logoutError && <p role="alert">{logoutError}</p>}
               </div>
               <button
                 type="button"
@@ -436,9 +439,15 @@ export default function SettingsView({ currentUser, onLogout }) {
 
               <button
                 type="button"
-                onClick={() => {
-                  setShowLogoutConfirm(false);
-                  onLogout();
+                disabled={loggingOut}
+                onClick={async () => {
+                  setLoggingOut(true); setLogoutError("");
+                  try {
+                    const result = await onLogout();
+                    if (!result?.success) setLogoutError(result?.error || "Unable to sign out. Please retry.");
+                    else setShowLogoutConfirm(false);
+                  } catch { setLogoutError("Unable to sign out. Please retry."); }
+                  finally { setLoggingOut(false); }
                 }}
                 style={{
                   padding: "9px 20px",

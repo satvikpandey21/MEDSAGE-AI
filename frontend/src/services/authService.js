@@ -145,7 +145,7 @@ export async function signOutUser() {
   try {
     const { error } = await supabase.auth.signOut();
     if (error) {
-      console.warn("Supabase signOut error:", error.message);
+      return { success: false, error: error.message || "Unable to sign out. Please retry." };
     }
     return { success: true };
   } catch (err) {

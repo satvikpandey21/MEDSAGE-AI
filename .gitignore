@@ -19,3 +19,11 @@ backend/.venv/
 # Python generated files
 __pycache__/
 *.py[cod]
+# Isolated local PostgreSQL validation dependencies
+.ocr-sql-validation/
+
+# Dedicated local OCR virtual environment
+.venv-ocr/
+
+# Sensitive local database backups, restore manifests and preflight results
+/.local-backups/

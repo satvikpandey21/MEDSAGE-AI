@@ -1,3 +1,4 @@
+import { updateStockSafely } from "../../lib/updateStockSafely";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
@@ -171,21 +172,9 @@ export default function MedicineStockView() {
             Number(enteredQuantity)
           : Number(enteredQuantity);
 
-      const { data, error: updateError } = await supabase
-        .from("medication_schedules")
-        .update({
-          stock_quantity: quantity,
-          low_stock_threshold: Number(enteredThreshold),
-        })
-        .eq("id", medicine.id)
-        .eq("patient_id", authData.user.id)
-        .select("id");
-
-      if (updateError) throw updateError;
-
-      if (!data?.length) {
-        throw new Error("Stock update was not saved.");
-      }
+      await updateStockSafely(supabase, medicine, authData.user.id, {
+        stock_quantity: quantity, low_stock_threshold: Number(enteredThreshold),
+      });
 
       setMessage(
         `${medicine.medicine_name}: stock updated successfully.`

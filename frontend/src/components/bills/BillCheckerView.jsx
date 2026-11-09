@@ -1,7 +1,9 @@
+import { isSafeAnalysis } from "../../lib/analysisSafety";
+import { deleteOwnedDocument } from "../../lib/deleteOwnedDocument";
+import { apiUrl } from "../../lib/api";
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 
-const API_URL = "http://127.0.0.1:8000";
 
 export default function BillCheckerView() {
   const [file, setFile] = useState(null);
@@ -85,7 +87,7 @@ async function handleUpload() {
       if (uploadError) throw uploadError;
 
       // Save bill record
-      const { error: insertError } = await supabase
+      const { data: savedBill, error: insertError } = await supabase
         .from("patient_bills")
         .insert({
           patient_id: userId,
@@ -94,7 +96,7 @@ async function handleUpload() {
           file_type: file.type,
           file_size: file.size,
           verification_status: "uploaded",
-        });
+        }).select("id").single();
 
       if (insertError) {
         await supabase.storage
@@ -106,13 +108,13 @@ async function handleUpload() {
 
       setMessage("Bill uploaded successfully. Analyzing with AI...");
 
-      // Send bill to Gemini backend
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch(`${API_URL}/analyze-bill`, {
+      // The backend validates ownership and downloads the saved object using this JWT.
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) throw new Error("Please login again.");
+      const response = await fetch(apiUrl("/analyze-bill"), {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
+        body: JSON.stringify({ bill_id: savedBill.id }),
       });
 
       const responseData = await response.json();
@@ -123,21 +125,7 @@ async function handleUpload() {
         );
       }
 
-      // Save AI analysis permanently in Supabase
-const { error: saveError } = await supabase
-  .from("patient_bills")
-  .update({
-    analysis_result: responseData.data,
-    analysis_status: "analyzed",
-    verification_status: "analyzed",
-  })
-  .eq("file_path", filePath)
-  .eq("patient_id", userId);
-
-if (saveError) {
-  throw saveError;
-}
-
+      // Analysis is persisted by the authenticated backend before returning.
 // Update frontend state
 setResult(responseData.data);
 
@@ -170,21 +158,8 @@ async function handleDeleteBill(bill) {
 
     const userId = authData.user.id;
 
-    // Delete original bill from Storage
-    const { error: storageError } = await supabase.storage
-      .from("pharmacy-bills")
-      .remove([bill.file_path]);
-
-    if (storageError) throw storageError;
-
-    // Delete bill record from database
-    const { error: databaseError } = await supabase
-      .from("patient_bills")
-      .delete()
-      .eq("id", bill.id)
-      .eq("patient_id", userId);
-
-    if (databaseError) throw databaseError;
+    const cleanup = await deleteOwnedDocument({ client: supabase,
+      table: "patient_bills", bucket: "pharmacy-bills", id: bill.id, userId });
 
     // Update frontend
     setSavedBills((previous) =>
@@ -196,7 +171,9 @@ async function handleDeleteBill(bill) {
       setResult(null);
     }
 
-    setMessage("Pharmacy bill deleted successfully!");
+    setMessage(cleanup.storageCleanupPending
+      ? "Record deleted. The stored file still needs cleanup; contact support."
+      : "Pharmacy bill deleted successfully!");
 
   } catch (err) {
     console.error("DELETE BILL ERROR:", err);
@@ -342,7 +319,8 @@ async function handleDeleteBill(bill) {
   </div>
 )}
 
-      {result && (
+      {result && !isSafeAnalysis(result) && <p role="alert">Saved analysis is malformed. Reanalyze or review the original document.</p>}
+      {result && isSafeAnalysis(result) && (
         <div
           style={{
             background: "#ffffff",

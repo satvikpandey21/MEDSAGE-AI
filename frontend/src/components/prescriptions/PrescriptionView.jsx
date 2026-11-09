@@ -1,5 +1,10 @@
+import { createOwnedSignedUrl } from "../../lib/privateStorage";
+import { isSafeAnalysis, compareMedicineFields } from "../../lib/analysisSafety";
+import { deleteOwnedDocument } from "../../lib/deleteOwnedDocument";
+import { apiUrl } from "../../lib/api";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import MedicineDetails from "./MedicineDetails";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -10,6 +15,7 @@ const ALLOWED_TYPES = [
 ];
 
 export default function PrescriptionView() {
+  const [selectedMedicine, setSelectedMedicine] = useState(null);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -188,34 +194,15 @@ async function loadVerifications() {
       setError("");
       setMessage("");
 
-      // Get prescription file from Supabase Storage
-      const { data: signedData, error: signedError } =
-        await supabase.storage
-          .from("prescriptions")
-          .createSignedUrl(file.file_path, 120);
-
-      if (signedError) throw signedError;
-
-      // Download file
-      const fileResponse = await fetch(signedData.signedUrl);
-
-      if (!fileResponse.ok) {
-        throw new Error("Unable to download prescription.");
-      }
-
-      const blob = await fileResponse.blob();
-
-      // Prepare file for backend
-      const formData = new FormData();
-
-      formData.append("file", blob, file.file_name);
-
-      // Send file to Gemini AI backend
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Please login again to continue.");
       const response = await fetch(
-        "http://127.0.0.1:8000/analyze-prescription",
+        apiUrl("/analyze-prescription"),
         {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ prescription_id: file.id }),
         }
       );
 
@@ -230,18 +217,22 @@ async function loadVerifications() {
       // Save AI analysis permanently in Supabase
 const userId = await getUserId();
 
-const { error: saveError } = await supabase
+const { data: savedAnalysis, error: saveError } = await supabase
   .from("patient_prescriptions")
   .update({
     analysis_result: result.data,
-    analysis_status: "analyzed",
+    analysis_status: result.analysis_status,
   })
   .eq("id", file.id)
-  .eq("patient_id", userId);
+  .eq("patient_id", userId)
+  .select("analysis_result")
+  .single();
 
 if (saveError) {
   throw saveError;
 }
+// Render the database state, including any durable OCR guard applied to it.
+result.data = savedAnalysis.analysis_result;
 
 // Update frontend state
 setAnalysisResults((previous) => ({
@@ -255,7 +246,7 @@ setVisibleAnalysisIds((previous) => ({
   [file.id]: true,
 }));
 
-setMessage("AI analysis completed and saved successfully!");
+setMessage(result.data.message || result.message);
 
     } catch (err) {
       setError(err.message || "AI analysis failed.");
@@ -289,6 +280,10 @@ async function handleVerifyWithBill(file) {
       return;
     }
 
+    if (prescription.extraction_source === "paddleocr" || prescription.analysis_status === "pending_review") {
+      setError("OCR text is unverified and cannot be verified against a bill or used for schedules.");
+      return;
+    }
     const prescriptionMedicines = prescription.medicines || [];
     const billMedicines = bill.analysis_result.medicines || [];
 
@@ -318,30 +313,7 @@ async function handleVerifyWithBill(file) {
         };
       }
 
-      const differences = [];
-      const uncertainties = [];
-
-      if (
-        medicine.uncertain_fields?.length ||
-        billMedicine.uncertain_fields?.length
-      ) {
-        uncertainties.push("Some extracted fields are uncertain.");
-      }
-
-      ["strength", "dosage_form"].forEach((field) => {
-        const prescriptionValue = medicine[field];
-        const billValue = billMedicine[field];
-
-        if (!prescriptionValue || !billValue) {
-          if (prescriptionValue || billValue) {
-            uncertainties.push(`${field} is missing on one side.`);
-          }
-        } else if (
-          normalize(prescriptionValue) !== normalize(billValue)
-        ) {
-          differences.push(`${field} does not match.`);
-        }
-      });
+      const { differences, uncertainties } = compareMedicineFields(medicine, billMedicine);
 
       return {
         prescription_medicine: medicine.name,
@@ -394,13 +366,8 @@ async function handleVerifyWithBill(file) {
 }
   async function handleView(file) {
     try {
-      const { data, error } = await supabase.storage
-        .from("prescriptions")
-        .createSignedUrl(file.file_path, 60);
-
-      if (error) throw error;
-
-      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+      const signedUrl = await createOwnedSignedUrl(supabase, "prescriptions", file.file_path);
+      window.open(signedUrl, "_blank", "noopener,noreferrer");
     } catch (err) {
       setError("Unable to open file: " + err.message);
     }
@@ -417,20 +384,12 @@ async function handleVerifyWithBill(file) {
       setError("");
       setMessage("");
 
-      const { error: storageError } = await supabase.storage
-        .from("prescriptions")
-        .remove([file.file_path]);
-
-      if (storageError) throw storageError;
-
-      const { error: databaseError } = await supabase
-        .from("patient_prescriptions")
-        .delete()
-        .eq("id", file.id);
-
-      if (databaseError) throw databaseError;
-
-      setMessage("Prescription deleted successfully.");
+      const userId = await getUserId();
+      const cleanup = await deleteOwnedDocument({ client: supabase,
+        table: "patient_prescriptions", bucket: "prescriptions", id: file.id, userId });
+      setMessage(cleanup.storageCleanupPending
+        ? "Record deleted. The stored file still needs cleanup; contact support."
+        : "Prescription deleted successfully.");
       await loadPrescriptions();
     } catch (err) {
       setError("Delete failed: " + err.message);
@@ -609,6 +568,15 @@ async function handleVerifyWithBill(file) {
                   {(() => {
                     const result = analysisResults[file.id];
 
+                    if (!isSafeAnalysis(result)) return <p role="alert">Saved analysis is malformed. Reanalyze or review the original document.</p>;
+                    if (result.extraction_source === "paddleocr" || result.analysis_status === "pending_review") {
+                      return <section aria-label="Unverified OCR text">
+                        <h4>OCR text - pending human review</h4>
+                        <p role="status">{result.message}</p>
+                        <p>All medicine details and instructions are unverified. Check the original using View and ask a pharmacist or prescriber to clarify handwriting. Schedule creation is disabled for this result.</p>
+                        <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "inherit" }}>{result.raw_ocr_text}</pre>
+                      </section>;
+                    }
                     return (
                       <>
                         {/* Patient and Doctor Details */}
@@ -650,7 +618,18 @@ async function handleVerifyWithBill(file) {
                           result.medicines.map((medicine, index) => (
                             <div
                               key={index}
-                              style={styles.resultItem}
+                              style={{ ...styles.resultItem, cursor: "pointer" }}
+                              role="button"
+                              tabIndex={0}
+                              aria-haspopup="dialog"
+                              aria-label={`View details for ${medicine.name || "unclear medicine"}`}
+                              onClick={() => setSelectedMedicine(medicine)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setSelectedMedicine(medicine);
+                                }
+                              }}
                             >
                               <strong>
                                 {index + 1}.{" "}
@@ -807,6 +786,7 @@ async function handleVerifyWithBill(file) {
           ))}
         </div>
       )}
+      {selectedMedicine && <MedicineDetails medicine={selectedMedicine} onClose={() => setSelectedMedicine(null)} />}
     </div>
   );
 }

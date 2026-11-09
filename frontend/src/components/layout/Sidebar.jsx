@@ -1,5 +1,5 @@
 import Icon from "../common/Icons";
-import { navItems, patientProfile } from "../../data/mockData";
+import { patientProfile } from "../../data/mockData";
 
 /**
  * Sidebar Navigation Component
@@ -12,7 +12,7 @@ import { navItems, patientProfile } from "../../data/mockData";
  * - isOpen: whether the mobile drawer is open or closed
  * - onClose: a function to close the mobile drawer
  */
-export default function Sidebar({ activeNav, onNavSelect, isOpen, onClose, currentUser }) {
+export default function Sidebar({ activeNav, onNavSelect, isOpen, onClose, currentUser, navItems = [], badgesLoading = false, badgesError = "" }) {
   const displayName = currentUser?.name || patientProfile.name;
   const initials = displayName
     .split(" ")
@@ -67,6 +67,8 @@ export default function Sidebar({ activeNav, onNavSelect, isOpen, onClose, curre
         {/* Navigation Links */}
         <nav className="sidebar-nav">
           <span className="nav-section-label">Main Menu</span>
+          {badgesLoading && <span role="status" style={{ padding: "0 20px", fontSize: 12 }}>Updating counts...</span>}
+          {badgesError && <span role="status" title={badgesError} style={{ padding: "0 20px", fontSize: 12 }}>Counts unavailable</span>}
 
           {navItems.map((item) => {
             const isActive = activeNav === item.id;

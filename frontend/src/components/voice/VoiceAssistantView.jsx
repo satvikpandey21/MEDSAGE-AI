@@ -1,263 +1,87 @@
-import { useCallback, useEffect, useState } from "react";
+import { apiUrl } from "../../lib/api";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-const getTodayKey = () => {
-  const date = new Date();
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
-};
-
-const formatTime = (time) => {
-  if (!time) return "Time not specified";
-
-  const [hours, minutes] = time.split(":").map(Number);
-
-  return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
 
 export default function VoiceAssistantView() {
-  const [medicines, setMedicines] = useState([]);
-  const [doseLogs, setDoseLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [listening, setListening] = useState(false);
   const [language, setLanguage] = useState("en-IN");
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState(
-    "Hello! I am your MedSage AI assistant. You can ask me about your medicines, doses and stock."
-  );
+  const [answer, setAnswer] = useState("Ask about medicine uses, side effects, precautions or general safety.");
   const [error, setError] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [includeMedications, setIncludeMedications] = useState(false);
+  const [contextStatus, setContextStatus] = useState("");
+  const pending = useRef(false);
+  const controllerRef = useRef(null);
+  const recognitionRef = useRef(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError("");
-
-    try {
-      const { data: authData, error: authError } =
-        await supabase.auth.getUser();
-
-      if (authError || !authData.user) {
-        throw new Error("Please login again.");
-      }
-
-      const userId = authData.user.id;
-
-      const { data: medicineData, error: medicineError } = await supabase
-        .from("medication_schedules")
-        .select("*")
-        .eq("patient_id", userId)
-        .eq("is_active", true);
-
-      if (medicineError) throw medicineError;
-
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-
-      const { data: logData, error: logError } = await supabase
-        .from("medication_dose_logs")
-        .select("*")
-        .eq("patient_id", userId)
-        .gte("scheduled_for", start.toISOString())
-        .lte("scheduled_for", end.toISOString());
-
-      if (logError) throw logError;
-
-      setMedicines(medicineData || []);
-      setDoseLogs(logData || []);
-    } catch (err) {
-      setError(err.message || "Unable to load medication information.");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => () => {
+    controllerRef.current?.abort();
+    recognitionRef.current?.abort();
+    window.speechSynthesis?.cancel();
   }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
 
   const speak = (text, lang = language) => {
     if (!("speechSynthesis" in window)) return;
-
     window.speechSynthesis.cancel();
-
     const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = lang;
+    speech.lang = lang === "hinglish" ? "hi-IN" : lang;
     speech.rate = 0.95;
     speech.pitch = 1;
-
     window.speechSynthesis.speak(speech);
   };
 
-  const getTodayDoses = () => {
-    const today = getTodayKey();
-    const now = new Date();
-
-    return medicines.flatMap((medicine) => {
-      if (medicine.frequency === "As needed") return [];
-
-      if (medicine.start_date && medicine.start_date > today) return [];
-      if (medicine.end_date && medicine.end_date < today) return [];
-
-      return (medicine.times || []).map((time) => {
-        const scheduled = new Date(`${today}T${time}:00`);
-
-        const log = doseLogs.find(
-          (item) =>
-            item.schedule_id === medicine.id &&
-            new Date(item.scheduled_for).getTime() === scheduled.getTime()
-        );
-
-        return {
-          medicine,
-          time,
-          scheduled,
-          status: log?.status || (
-            scheduled.getTime() < now.getTime() - 30 * 60000
-              ? "missed"
-              : scheduled.getTime() <= now.getTime()
-              ? "due"
-              : "upcoming"
-          ),
-        };
-      });
-    }).sort((a, b) => a.scheduled - b.scheduled);
-  };
-
   const processQuestion = async (text) => {
-    if (!text.trim()) return;
-
-    setQuestion(text);
-    setError("");
-
-    const query = text.toLowerCase();
-    const hindi = /[\u0900-\u097F]/.test(text);
-    const responseLang = hindi ? "hi-IN" : "en-IN";
-
-    if (medicines.length === 0) {
-      const response = hindi
-        ? "Aapke account mein abhi koi active medicine schedule nahi hai."
-        : "You do not have any active medication schedules.";
-
-      setAnswer(response);
-      speak(response, responseLang);
+    if (pending.current) return;
+    if (!text.trim() || text.length > 1500) {
+      setError("Enter a question between 1 and 1500 characters.");
       return;
     }
-
-    let response = "";
-
-    const todayDoses = getTodayDoses();
-
-    if (
-      query.includes("stock") ||
-      query.includes("refill") ||
-      query.includes("स्टॉक") ||
-      query.includes("दवाई खत्म") ||
-      query.includes("कम दवाई")
-    ) {
-      const lowStock = medicines.filter(
-        (medicine) =>
-          medicine.stock_quantity !== null &&
-          medicine.stock_quantity !== undefined &&
-          Number(medicine.stock_quantity) <=
-            Number(medicine.low_stock_threshold ?? 5)
-      );
-
-      if (!lowStock.length) {
-        response = hindi
-          ? "Aapki kisi bhi medicine ka stock low nahi hai."
-          : "None of your medicines currently have low stock.";
-      } else {
-        response = hindi
-          ? "Aapki low stock medicines hain: "
-          : "Your low stock medicines are: ";
-
-        response += lowStock
-          .map((medicine) => {
-            const stock = Number(medicine.stock_quantity);
-
-            return `${medicine.medicine_name}: ${
-              stock <= 0 ? "Out of stock" : `${stock} ${medicine.stock_unit}`
-            }`;
-          })
-          .join(". ");
+    pending.current = true;
+    setAsking(true);
+    setQuestion(text);
+    setError("");
+    setAnswer("");
+    setContextStatus("");
+    window.speechSynthesis?.cancel();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const timer = setTimeout(() => controller.abort(), 55000);
+    try {
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !data.session?.access_token) {
+        setError("Please sign in again to use the assistant.");
+        return;
       }
-    } else if (
-      query.includes("next") ||
-      query.includes("upcoming") ||
-      query.includes("अगली") ||
-      query.includes("अगली दवाई") ||
-      query.includes("कब लेनी")
-    ) {
-      const nextDose = todayDoses.find(
-        (dose) =>
-          dose.scheduled > new Date() &&
-          dose.status === "upcoming"
-      );
-
-      if (!nextDose) {
-        response = hindi
-          ? "Aaj ke liye koi upcoming dose nahi hai."
-          : "You have no upcoming doses scheduled for today.";
-      } else {
-        response = hindi
-          ? `Aapki agli medicine ${nextDose.medicine.medicine_name} hai. Iska time ${formatTime(nextDose.time)} hai.`
-          : `Your next medicine is ${nextDose.medicine.medicine_name}. It is scheduled for ${formatTime(nextDose.time)}.`;
+      const response = await fetch(apiUrl("/ask-medicine"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` },
+        signal: controller.signal,
+        body: JSON.stringify({ question: text.trim(), language, include_medications: includeMedications }),
+      });
+      if (!response.ok) {
+        const messages = {
+          401: "Your session expired. Please sign in again.",
+          422: "Please check your question and try again.",
+          429: "Too many questions. Please wait a minute.",
+          504: "The assistant took too long. Please try again.",
+        };
+        setError(messages[response.status] || "The assistant is unavailable right now. Please try again.");
+        return;
       }
-    } else if (
-      query.includes("today") ||
-      query.includes("schedule") ||
-      query.includes("medicine") ||
-      query.includes("medicines") ||
-      query.includes("दवाई") ||
-      query.includes("दवाइयां") ||
-      query.includes("आज")
-    ) {
-      if (!todayDoses.length) {
-        response = hindi
-          ? "Aaj koi medicine scheduled nahi hai."
-          : "No medicines are scheduled for today.";
-      } else {
-        response = hindi
-          ? "Aaj ka aapka medicine schedule: "
-          : "Here is your medicine schedule for today: ";
-
-        response += todayDoses
-          .map(
-            (dose) =>
-              `${dose.medicine.medicine_name} at ${formatTime(dose.time)}, status ${dose.status}`
-          )
-          .join(". ");
-      }
-    } else if (
-      query.includes("taken") ||
-      query.includes("missed") ||
-      query.includes("skipped") ||
-      query.includes("ली") ||
-      query.includes("छूट")
-    ) {
-      const taken = todayDoses.filter((dose) => dose.status === "taken").length;
-      const skipped = todayDoses.filter((dose) => dose.status === "skipped").length;
-      const missed = todayDoses.filter((dose) => dose.status === "missed").length;
-
-      response = hindi
-        ? `Aaj aapne ${taken} doses li hain, ${skipped} skip ki hain aur ${missed} miss hui hain.`
-        : `Today you have taken ${taken} doses, skipped ${skipped}, and missed ${missed}.`;
-    } else {
-      response = hindi
-        ? "Main aapki medicines, next dose, daily schedule aur stock ke baare mein bata sakta hoon. Kripya dobara poochhein."
-        : "I can help you with your medicines, next dose, daily schedule and stock. Please try asking another question.";
+      const result = await response.json();
+      if (typeof result.answer !== "string" || !result.answer.trim() || result.answer.length > 5000) throw new Error();
+      setAnswer(result.answer);
+      setContextStatus(result.medication_context_status);
+      speak(result.answer);
+    } catch (err) {
+      setError(err.name === "AbortError" ? "The request timed out or was cancelled. Please try again." : "Unable to reach the assistant. Please try again.");
+    } finally {
+      clearTimeout(timer);
+      pending.current = false;
+      setAsking(false);
     }
-
-    setAnswer(response);
-    speak(response, responseLang);
   };
 
   const startListening = () => {
@@ -266,7 +90,7 @@ export default function VoiceAssistantView() {
 
     if (!SpeechRecognition) {
       setError(
-        "Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge."
+        "Voice recognition is not supported in this browser. Please type your question below."
       );
       return;
     }
@@ -275,7 +99,8 @@ export default function VoiceAssistantView() {
 
     const recognition = new SpeechRecognition();
 
-    recognition.lang = language;
+    recognitionRef.current = recognition;
+    recognition.lang = language === "hinglish" ? "hi-IN" : language;
     recognition.continuous = false;
     recognition.interimResults = false;
 
@@ -298,7 +123,7 @@ export default function VoiceAssistantView() {
       setListening(false);
     };
 
-    recognition.start();
+    try { recognition.start(); } catch { setListening(false); setError("Unable to start the microphone. Please type your question."); }
   };
 
   const cardStyle = {
@@ -334,7 +159,7 @@ export default function VoiceAssistantView() {
         <h3>{listening ? "Listening..." : "Talk to MedSage AI"}</h3>
 
         <p style={{ color: "#64748b" }}>
-          Ask about your medicines, upcoming doses and stock.
+          Ask about medicine uses, side effects, precautions and safety.
         </p>
 
         <select
@@ -347,6 +172,7 @@ export default function VoiceAssistantView() {
             marginBottom: "16px",
           }}
         >
+          <option value="hinglish">Hinglish</option>
           <option value="en-IN">English</option>
           <option value="hi-IN">हिन्दी</option>
         </select>
@@ -355,7 +181,7 @@ export default function VoiceAssistantView() {
           <button
             type="button"
             onClick={startListening}
-            disabled={listening || loading}
+            disabled={listening || asking}
             style={{
               ...buttonStyle,
               background: listening ? "#64748b" : "#0284c7",
@@ -369,6 +195,8 @@ export default function VoiceAssistantView() {
 
         <div style={{ marginTop: "18px" }}>
           <input
+            maxLength={1500}
+            aria-label="Medicine question"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => {
@@ -388,7 +216,7 @@ export default function VoiceAssistantView() {
           <button
             type="button"
             onClick={() => processQuestion(question)}
-            disabled={loading}
+            disabled={asking || listening}
             style={{
               ...buttonStyle,
               background: "#0d9488",
@@ -396,18 +224,28 @@ export default function VoiceAssistantView() {
               marginTop: "10px",
             }}
           >
-            Ask Assistant
+            {asking ? "Thinking..." : "Ask Assistant"}
           </button>
         </div>
       </div>
 
       <div style={cardStyle}>
+        <label>
+          <input type="checkbox" checked={includeMedications} disabled={asking}
+            onChange={(event) => setIncludeMedications(event.target.checked)} />{" "}
+          Include my active medication schedules in this question (shared with Gemini).
+        </label>
+        <p>Original prescriptions and dose history are not available to this assistant.</p>
+        {contextStatus === "unavailable" && <p role="status">Your medication records could not be accessed. Personal medication details cannot be confirmed.</p>}
+      </div>
+
+      <div style={cardStyle}>
         <h3>💬 Assistant Response</h3>
 
-        {loading ? (
-          <p>Loading your medication information...</p>
+        {asking ? (
+          <p>Preparing an educational answer...</p>
         ) : (
-          <p style={{ lineHeight: 1.8 }}>{answer}</p>
+          <p style={{ lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{answer}</p>
         )}
 
         <button
@@ -441,9 +279,9 @@ export default function VoiceAssistantView() {
 
         {[
           "What medicines do I have today?",
-          "When is my next dose?",
+          "What are common side effects of paracetamol?",
           "Which medicines have low stock?",
-          "How many doses have I taken today?",
+          "Dawai ke precautions Hinglish mein samjhaiye.",
           "आज मेरी अगली दवाई कब है?",
           "किन दवाइयों का स्टॉक कम है?",
         ].map((item) => (
@@ -480,21 +318,8 @@ export default function VoiceAssistantView() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={loadData}
-        disabled={loading}
-        style={{
-          ...buttonStyle,
-          background: "#e2e8f0",
-          color: "#334155",
-        }}
-      >
-        ↻ Refresh Medication Data
-      </button>
-
       <p style={{ color: "#64748b", fontSize: "12px", marginTop: "18px" }}>
-        MedSage AI provides medication schedule information only. Always follow
+        Educational information, not personalized medical advice. For urgent symptoms, seek immediate emergency care. Always follow
         your doctor's prescription. It does not provide medical diagnosis or
         treatment advice.
       </p>

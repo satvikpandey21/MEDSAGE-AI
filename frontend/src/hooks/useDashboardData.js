@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 function getTodayKey() {
@@ -29,7 +29,13 @@ function formatActivityTime(date) {
   return new Date(date).toLocaleString();
 }
 
-export default function useDashboardData(enabled = true) {
+const EMPTY_METRICS = { totalPrescriptions: 0, activePrescriptions: 0,
+  upcomingDosesToday: 0, dosesTakenToday: 0, dosesMissedToday: 0,
+  totalDosesToday: 0, lowStockItemsCount: 0 };
+
+export default function useDashboardData(enabled = true, identity = null) {
+  const generation = useRef(0);
+  const [ownerId, setOwnerId] = useState(null);
   const [schedule, setSchedule] = useState([]);
   const [stockAlerts, setStockAlerts] = useState([]);
   const [activities, setActivities] = useState([]);
@@ -48,6 +54,7 @@ export default function useDashboardData(enabled = true) {
   const [error, setError] = useState("");
 
   const loadDashboard = useCallback(async () => {
+    const version = generation.current;
     try {
       setLoading(true);
       setError("");
@@ -55,7 +62,7 @@ export default function useDashboardData(enabled = true) {
       const { data: authData, error: authError } =
         await supabase.auth.getUser();
 
-      if (authError || !authData.user) {
+      if (authError || !authData.user || authData.user.id !== identity) {
         throw new Error("Please log in again.");
       }
 
@@ -86,6 +93,7 @@ export default function useDashboardData(enabled = true) {
           .order("created_at", { ascending: false }),
       ]);
 
+      if (version !== generation.current) return;
       if (medicinesResult.error) {
         throw medicinesResult.error;
       }
@@ -165,6 +173,7 @@ export default function useDashboardData(enabled = true) {
           new Date(a.scheduledDate) - new Date(b.scheduledDate)
       );
 
+      setOwnerId(identity);
       setSchedule(todaySchedule);
 
       // Actual low-stock medicines
@@ -262,14 +271,17 @@ export default function useDashboardData(enabled = true) {
         lowStockItemsCount: lowStock.length,
       });
     } catch (err) {
+      if (version !== generation.current) return;
+      setOwnerId(identity); setSchedule([]); setStockAlerts([]); setActivities([]); setMetrics(EMPTY_METRICS);
       console.error("DASHBOARD LOAD ERROR:", err);
       setError(err.message || "Unable to load dashboard.");
     } finally {
-      setLoading(false);
+      if (version === generation.current) setLoading(false);
     }
-  }, []);
+  }, [identity]);
 
   useEffect(() => {
+  generation.current += 1;
   if (!enabled) {
     setSchedule([]);
     setStockAlerts([]);
@@ -282,16 +294,17 @@ export default function useDashboardData(enabled = true) {
 
   const interval = setInterval(loadDashboard, 60000);
 
-  return () => clearInterval(interval);
+  return () => { generation.current += 1; clearInterval(interval); };
 }, [enabled, loadDashboard]);
 
+  const current = enabled && identity === ownerId;
   return {
-    schedule,
-    stockAlerts,
-    activities,
-    metrics,
-    loading,
-    error,
+    schedule: current ? schedule : [],
+    stockAlerts: current ? stockAlerts : [],
+    activities: current ? activities : [],
+    metrics: current ? metrics : EMPTY_METRICS,
+    loading: enabled && (!current || loading),
+    error: current ? error : "",
     refreshDashboard: loadDashboard,
   };
 }

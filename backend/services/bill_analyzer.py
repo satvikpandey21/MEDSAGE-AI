@@ -11,7 +11,7 @@ api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     raise ValueError("Gemini API key not found")
 
-client = genai.Client(api_key=api_key)
+client = genai.Client(api_key=api_key, http_options={"timeout":25000,"retry_options":{"attempts":1}})
 
 
 async def analyze_pharmacy_bill(image_bytes: bytes, mime_type: str):
@@ -62,7 +62,7 @@ async def analyze_pharmacy_bill(image_bytes: bytes, mime_type: str):
     }
     """
 
-    response = client.models.generate_content(
+    response = await client.aio.models.generate_content(
         model="gemini-3.5-flash-lite",
         contents=[
             prompt,

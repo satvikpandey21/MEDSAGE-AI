@@ -11,6 +11,7 @@ import LoginPage from "./components/auth/LoginPage";
 import MedicineStockView from "./components/stock/MedicineStockView";
 import RegisterPage from "./components/auth/RegisterPage";
 import Icon from "./components/common/Icons";
+import useSidebarCounts from "./hooks/useSidebarCounts";
 import useDashboardData from "./hooks/useDashboardData";
 import CaretakerView from "./components/Caretaker/CaretakerView";
 import VoiceAssistantView from "./components/voice/VoiceAssistantView";
@@ -48,7 +49,8 @@ import "./App.css";
 function App() {
   // Authentication state managed directly via Supabase
   const [currentUser, setCurrentUser] = useState(null);
-  const dashboardData = useDashboardData(Boolean(currentUser));
+  const dashboardData = useDashboardData(Boolean(currentUser), currentUser?.rawId || null);
+  const sidebarData = useSidebarCounts(currentUser?.rawId || currentUser?.id);
 
 const todayAdherence =
   dashboardData.schedule.length > 0 &&
@@ -172,7 +174,8 @@ useEffect(() => {
 
   // Handler: User Logout via Supabase
   const handleLogout = async () => {
-    await signOutUser();
+    const result = await signOutUser();
+    if (!result.success) return result;
     setCurrentUser(null);
     setAuthView("login");
     setActiveNav("dashboard");
@@ -181,6 +184,7 @@ useEffect(() => {
     setRegistrationNotice("");
     setPrefilledEmail("");
     window.history.pushState(null, "", window.location.pathname);
+    return { success: true };
   };
 
   // Handler: Synchronize updated profile across application UI
@@ -298,27 +302,9 @@ useEffect(() => {
     );
   }
 const dynamicNavItems = navItems.map((item) => {
-  if (item.id === "prescriptions") {
-    return {
-      ...item,
-      badge: dashboardData.loading || dashboardData.error
-        ? null
-        : String(dashboardData.metrics.totalPrescriptions),
-    };
-  }
-
-  if (item.id === "stock") {
-    const count = dashboardData.stockAlerts.length;
-
-    return {
-      ...item,
-      badge: dashboardData.loading || dashboardData.error
-        ? null
-        : count > 0 ? `${count} Low` : null,
-    };
-  }
-
-  return item;
+  const count = sidebarData.counts[item.id];
+  return { ...item, badge: sidebarData.loading || sidebarData.error || count == null
+    ? null : item.id === "stock" && count > 0 ? `${count} Low` : String(count) };
 });
   // ============================================================
   // SCENARIO 2: USER IS LOGGED IN -> RENDER PROTECTED PLATFORM
@@ -330,6 +316,8 @@ const dynamicNavItems = navItems.map((item) => {
       {/* 1. Left Sidebar Navigation */}
       <Sidebar
       navItems={dynamicNavItems}
+      badgesLoading={sidebarData.loading}
+      badgesError={sidebarData.error}
         activeNav={activeNav}
         onNavSelect={(navId) => setActiveNav(navId)}
         isOpen={isSidebarOpen}
@@ -348,7 +336,7 @@ const dynamicNavItems = navItems.map((item) => {
 />
 
         {/* Dynamic Page Content */}
-        <main className="page-container">
+        <main key={currentUser.rawId} className="page-container">
           {activeNav === "dashboard" ? (
            <DashboardView
   currentUser={currentUser}
@@ -370,7 +358,7 @@ const dynamicNavItems = navItems.map((item) => {
             ) : activeNav === "ai-assistant" ? (
             <VoiceAssistantView />
             ) : activeNav === "caretaker" ? (
-  <CaretakerView currentUser={currentUser} />
+  <CaretakerView key={currentUser?.rawId || currentUser?.id} currentUser={currentUser} />
             ) : activeNav === "settings" ? (
             <SettingsView
               currentUser={currentUser}
