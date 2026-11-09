@@ -5,6 +5,10 @@ export async function deleteOwnedDocument({ client, table, bucket, id, userId })
     .eq("patient_id", userId).select("id,file_path").single();
   if (error) throw error;
   if (!data || data.id !== id) throw new Error("The document was not deleted.");
+  return cleanupDeletedDocument({ client, bucket, data, userId });
+}
+
+export async function cleanupDeletedDocument({ client, bucket, data, userId }) {
   const path = data.file_path;
   if (typeof path !== "string" || !path.startsWith(`${userId}/`) || /[\\%]/.test(path)
       || path.split("/").some((p) => !p || p === "." || p === "..")) {

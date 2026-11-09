@@ -1,8 +1,9 @@
 import { createOwnedSignedUrl } from "../../lib/privateStorage";
 import { isSafeAnalysis, compareMedicineFields } from "../../lib/analysisSafety";
-import { deleteOwnedDocument } from "../../lib/deleteOwnedDocument";
+import { deleteConfirmedPrescription } from "../../lib/prescriptionDeletion";
 import { apiUrl } from "../../lib/api";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useReducer } from "react";
+import { emptyVerificationDisplay, verificationDisplayReducer } from "../../lib/verificationDisplay";
 import { supabase } from "../../lib/supabase";
 import MedicineDetails from "./MedicineDetails";
 
@@ -25,7 +26,9 @@ export default function PrescriptionView() {
   const [analysisResults, setAnalysisResults] = useState({});
   const [savedBills, setSavedBills] = useState([]);
 const [selectedBills, setSelectedBills] = useState({});
-const [verificationResults, setVerificationResults] = useState({});
+const [pastVerifications, setPastVerifications] = useState([]);
+const [verificationDisplay, dispatchVerification] = useReducer(verificationDisplayReducer, emptyVerificationDisplay);
+const { visible: verificationResults, selection: selectedPastVerifications, activePrescriptionId } = verificationDisplay;
 const [verifyingId, setVerifyingId] = useState(null);
 const [visibleAnalysisIds, setVisibleAnalysisIds] = useState({});
 
@@ -105,15 +108,7 @@ async function loadVerifications() {
 
     if (error) throw error;
 
-    const results = {};
-
-    (data || []).forEach((item) => {
-      if (!results[item.prescription_id]) {
-        results[item.prescription_id] = item;
-      }
-    });
-
-    setVerificationResults(results);
+    setPastVerifications(data || []);
   } catch (err) {
     console.error("LOAD VERIFICATIONS ERROR:", err);
   }
@@ -189,6 +184,7 @@ async function loadVerifications() {
   }
 
   async function handleAnalyze(file) {
+    dispatchVerification({ type: "open", prescriptionId: file.id });
     try {
       setAnalyzingId(file.id);
       setError("");
@@ -255,6 +251,7 @@ setMessage(result.data.message || result.message);
     }
   }
 async function handleVerifyWithBill(file) {
+  dispatchVerification({ type: "open", prescriptionId: file.id });
   try {
     setError("");
     setMessage("");
@@ -350,10 +347,8 @@ async function handleVerifyWithBill(file) {
 
     if (error) throw error;
 
-    setVerificationResults((previous) => ({
-      ...previous,
-      [file.id]: data,
-    }));
+    dispatchVerification({ type: "completed", prescriptionId: file.id, result: data });
+    setPastVerifications((previous) => [data, ...previous.filter((item) => item.id !== data.id)]);
 
     setMessage(`Verification completed: ${status.replace("_", " ").toUpperCase()}`);
 
@@ -365,6 +360,7 @@ async function handleVerifyWithBill(file) {
   }
 }
   async function handleView(file) {
+    dispatchVerification({ type: "open", prescriptionId: file.id });
     try {
       const signedUrl = await createOwnedSignedUrl(supabase, "prescriptions", file.file_path);
       window.open(signedUrl, "_blank", "noopener,noreferrer");
@@ -374,23 +370,21 @@ async function handleVerifyWithBill(file) {
   }
 
   async function handleDelete(file) {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this prescription?"
-    );
-
-    if (!confirmed) return;
-
     try {
       setError("");
       setMessage("");
 
       const userId = await getUserId();
-      const cleanup = await deleteOwnedDocument({ client: supabase,
-        table: "patient_prescriptions", bucket: "prescriptions", id: file.id, userId });
+      const cleanup = await deleteConfirmedPrescription({ client: supabase,
+        id: file.id, userId, confirmDelete: (warning) => window.confirm(warning) });
+      if (cleanup.cancelled) return;
       setMessage(cleanup.storageCleanupPending
         ? "Record deleted. The stored file still needs cleanup; contact support."
         : "Prescription deleted successfully.");
       await loadPrescriptions();
+      await loadVerifications();
+      dispatchVerification({ type: "clear" });
+      window.dispatchEvent(new Event("medsage:data-changed"));
     } catch (err) {
       setError("Delete failed: " + err.message);
     }
@@ -532,6 +526,10 @@ async function handleVerifyWithBill(file) {
               </div>
 
               <div style={styles.actions}>
+                {analysisResults[file.id] && <button style={styles.viewButton} onClick={() => {
+                  dispatchVerification({ type: "open", prescriptionId: file.id });
+                  setVisibleAnalysisIds((previous) => ({ ...previous, [file.id]: true }));
+                }}>View Analysis</button>}
                 <button
                   style={styles.viewButton}
                   onClick={() => handleAnalyze(file)}
@@ -688,12 +686,13 @@ async function handleVerifyWithBill(file) {
 
   <select
     value={selectedBills[file.id] || ""}
-    onChange={(e) =>
+    onChange={(e) => {
+      dispatchVerification({ type: "open", prescriptionId: file.id });
       setSelectedBills((prev) => ({
         ...prev,
         [file.id]: e.target.value,
-      }))
-    }
+      }));
+    }}
     style={{
       padding: "10px",
       width: "100%",
@@ -720,7 +719,26 @@ async function handleVerifyWithBill(file) {
     {verifyingId === file.id ? "Verifying..." : "Verify with Bill"}
   </button>
 
-  {verificationResults[file.id] && (
+  <label style={{ display: "block", marginTop: 12 }}>
+    Past Verifications
+    <select aria-label={`Past Verifications for ${file.file_name}`}
+      value={selectedPastVerifications[file.id] || ""}
+      onChange={(event) => {
+        dispatchVerification({ type: "select", prescriptionId: file.id, id: event.target.value });
+      }} style={{ display: "block", width: "100%", padding: 10, marginTop: 6 }}>
+      <option value="">Select a past verification</option>
+      {pastVerifications.filter((item) => item.prescription_id === file.id).map((item) =>
+        <option key={item.id} value={item.id}>
+          {new Date(item.created_at).toLocaleString()} - {item.status.replaceAll("_", " ")}
+        </option>)}
+    </select>
+  </label>
+  <button style={styles.viewButton} disabled={!selectedPastVerifications[file.id]}
+    onClick={() => {
+      dispatchVerification({ type: "showPast", prescriptionId: file.id, history: pastVerifications });
+    }}>View Past Verification</button>
+
+  {activePrescriptionId === file.id && verificationResults[file.id] && (
     <div style={{ marginTop: "15px" }}>
       <h4>
         Verification Status:{" "}
