@@ -1,5 +1,5 @@
 import { createOwnedSignedUrl } from "../../lib/privateStorage";
-import { isSafeAnalysis, compareMedicineFields } from "../../lib/analysisSafety";
+import { isSafeAnalysis, comparePrescriptionMedicines } from "../../lib/analysisSafety";
 import { deleteConfirmedPrescription } from "../../lib/prescriptionDeletion";
 import { apiUrl } from "../../lib/api";
 import { useEffect, useState, useReducer } from "react";
@@ -291,39 +291,7 @@ async function handleVerifyWithBill(file) {
 
     setVerifyingId(file.id);
 
-    const normalize = (value) =>
-      String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-
-    const comparisons = prescriptionMedicines.map((medicine) => {
-      const medicineName = normalize(medicine.name);
-
-      const billMedicine = billMedicines.find(
-        (item) => normalize(item.name) === medicineName
-      );
-
-      if (!medicineName || !billMedicine) {
-        return {
-          prescription_medicine: medicine.name || null,
-          bill_medicine: billMedicine?.name || null,
-          status: "mismatch",
-          reason: "Medicine name not found as an exact match on the bill.",
-        };
-      }
-
-      const { differences, uncertainties } = compareMedicineFields(medicine, billMedicine);
-
-      return {
-        prescription_medicine: medicine.name,
-        bill_medicine: billMedicine.name,
-        status: differences.length
-          ? "mismatch"
-          : uncertainties.length
-          ? "needs_review"
-          : "matched",
-        differences,
-        uncertainties,
-      };
-    });
+    const comparisons = comparePrescriptionMedicines(prescriptionMedicines, billMedicines);
 
     const status = comparisons.some((item) => item.status === "mismatch")
       ? "mismatch"
