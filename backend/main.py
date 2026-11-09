@@ -4,11 +4,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from services.bill_pipeline import router as bill_router
 from services.medicine_assistant import router as medicine_assistant_router
+from services.medicine_assistant import log_configuration_presence
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app):
+    log_configuration_presence()
+    yield
 
 app = FastAPI(
     title="MedSage AI Backend",
     description="Intelligent Medication Management Platform",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 app.include_router(medicine_assistant_router)
 

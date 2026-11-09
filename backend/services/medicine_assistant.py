@@ -1,6 +1,7 @@
 """Authenticated, read-only medicine education. Never uses a service-role key."""
 import asyncio
 import json
+import logging
 import os
 import time
 from collections import defaultdict, deque
@@ -15,6 +16,16 @@ from typing import Literal
 router = APIRouter()
 MODEL = "gemini-3.5-flash-lite"
 _requests = defaultdict(deque)
+
+
+def log_configuration_presence():
+    """Startup-only diagnostic: fixed names and booleans, never secret values."""
+    presence = {name: bool(os.getenv(name)) for name in (
+        "GEMINI_API_KEY", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY",
+    )}
+    logging.getLogger("uvicorn.error").info(
+        "Medicine assistant environment presence (nonempty): %s", json.dumps(presence)
+    )
 
 
 class Question(BaseModel):
