@@ -1,3 +1,4 @@
+import { validateMedication } from "../../lib/medicationValidation";
 import { updateStockSafely } from "../../lib/updateStockSafely";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
@@ -7,19 +8,11 @@ const todayKey = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
 
-const localDateTime = (dateKey, time) => {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  const [hours, minutes] = time.split(":").map(Number);
-  return new Date(year, month - 1, day, hours, minutes, 0, 0);
-};
-
-const formatTime = (date) =>
-  date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
 export default function ScheduleView() {
   const [medicines, setMedicines] = useState([]);
   const [doseLogs, setDoseLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
   const [error, setError] = useState("");
@@ -33,7 +26,6 @@ export default function ScheduleView() {
   const [verifiedPrescriptions, setVerifiedPrescriptions] = useState([]);
   const [selectedVerifiedSource, setSelectedVerifiedSource] = useState(null);
   const [patientConfirmed, setPatientConfirmed] = useState(false);
-  const [clock, setClock] = useState(new Date());
   const [stockDrafts, setStockDrafts] = useState({});
 
   const [form, setForm] = useState({
@@ -139,33 +131,11 @@ export default function ScheduleView() {
   useEffect(() => {
     refreshAll();
     loadVerifiedPrescriptions();
-    const timer = window.setInterval(() => setClock(new Date()), 30000);
+    const timer = window.setInterval(() => {
+      loadMedicines().then((id) => loadDoseLogs(id)).catch(() => {});
+    }, 30000);
     return () => window.clearInterval(timer);
-  }, [refreshAll]);
-
-  const todayDoses = useMemo(() => {
-    const key = todayKey();
-    return medicines.flatMap((medicine) => {
-      if (medicine.frequency === "As needed") return [];
-      if (medicine.start_date && medicine.start_date > key) return [];
-      if (medicine.end_date && medicine.end_date < key) return [];
-      return (medicine.times || [])
-        .filter((time) => /^\d{2}:\d{2}$/.test(time))
-        .map((time) => {
-          const scheduledDate = localDateTime(key, time);
-          const existingLog = doseLogs.find(
-            (log) =>
-              log.schedule_id === medicine.id &&
-              new Date(log.scheduled_for).getTime() === scheduledDate.getTime()
-          );
-          const minutesUntil = Math.round((scheduledDate.getTime() - clock.getTime()) / 60000);
-          let status = existingLog?.status || "upcoming";
-          if (!existingLog && minutesUntil < -30) status = "missed";
-          else if (!existingLog && minutesUntil <= 0) status = "due";
-          return { medicine, time, scheduledDate, existingLog, status, minutesUntil };
-        });
-    }).sort((a, b) => a.scheduledDate - b.scheduledDate);
-  }, [medicines, doseLogs, clock]);
+  }, [refreshAll, loadMedicines, loadDoseLogs]);
 
   const lowStockMedicines = useMemo(
     () => medicines.filter((medicine) =>
@@ -175,101 +145,6 @@ export default function ScheduleView() {
     ),
     [medicines]
   );
-
-  // Save missed doses automatically after a 30-minute grace period while the app is open.
-  useEffect(() => {
-    if (!patientId || !todayDoses.length) return;
-    const overdue = todayDoses.filter(
-      (dose) => dose.status === "missed" && !dose.existingLog
-    );
-    if (!overdue.length) return;
-
-    let cancelled = false;
-    (async () => {
-      for (const dose of overdue) {
-        if (cancelled) return;
-        const { error: insertError } = await supabase.from("medication_dose_logs").insert({
-          patient_id: patientId,
-          schedule_id: dose.medicine.id,
-          scheduled_for: dose.scheduledDate.toISOString(),
-          status: "missed",
-        });
-        // 23505 means another refresh already recorded this dose.
-        if (insertError && insertError.code !== "23505") {
-          console.error("MISSED DOSE LOG ERROR:", insertError);
-        }
-      }
-      if (!cancelled) await loadDoseLogs(patientId);
-    })();
-    return () => { cancelled = true; };
-  }, [todayDoses, patientId, loadDoseLogs]);
-
-  // Browser reminders work while this page is open; permission is requested by the user.
-  useEffect(() => {
-    if (notificationPermission !== "granted") return;
-    const now = new Date();
-    todayDoses.forEach((dose) => {
-      if (dose.existingLog || dose.scheduledDate > now) return;
-      const ageMinutes = (now.getTime() - dose.scheduledDate.getTime()) / 60000;
-      if (ageMinutes > 10) return;
-      const key = `medsage-dose-notified-${dose.medicine.id}-${dose.scheduledDate.getTime()}`;
-      if (localStorage.getItem(key)) return;
-      new Notification(`Medicine due: ${dose.medicine.medicine_name}`, {
-        body: `${dose.medicine.dosage} · Scheduled at ${formatTime(dose.scheduledDate)}`,
-        tag: key,
-      });
-      localStorage.setItem(key, "1");
-    });
-  }, [todayDoses, notificationPermission]);
-  // Low stock and out-of-stock browser notifications
-useEffect(() => {
-  if (notificationPermission !== "granted") return;
-
-  lowStockMedicines.forEach((medicine) => {
-    const stock = Number(medicine.stock_quantity);
-    const threshold = Number(medicine.low_stock_threshold ?? 5);
-
-    const isOutOfStock = stock <= 0;
-
-    // Separate keys for low stock and out of stock
-    const notificationKey = isOutOfStock
-      ? `medsage-out-of-stock-${medicine.id}`
-      : `medsage-low-stock-${medicine.id}`;
-
-    if (localStorage.getItem(notificationKey)) return;
-
-    try {
-      new Notification(
-        isOutOfStock
-          ? `🚨 OUT OF STOCK: ${medicine.medicine_name}`
-          : `⚠️ LOW STOCK: ${medicine.medicine_name}`,
-        {
-          body: isOutOfStock
-            ? "Your medicine stock is finished. Please arrange a refill."
-            : `Only ${stock} ${medicine.stock_unit || "units"} remaining. Refill recommended. Alert limit: ${threshold}.`,
-          icon: "/favicon.ico",
-          tag: notificationKey,
-        }
-      );
-
-      localStorage.setItem(notificationKey, "true");
-    } catch (err) {
-      console.error("STOCK NOTIFICATION ERROR:", err);
-    }
-  });
-
-  // Reset both notification flags after stock replenishment
-  medicines.forEach((medicine) => {
-    if (
-      medicine.stock_quantity === null ||
-      medicine.stock_quantity === undefined ||
-      Number(medicine.stock_quantity) > Number(medicine.low_stock_threshold ?? 5)
-    ) {
-      localStorage.removeItem(`medsage-low-stock-${medicine.id}`);
-      localStorage.removeItem(`medsage-out-of-stock-${medicine.id}`);
-    }
-  });
-}, [lowStockMedicines, medicines, notificationPermission]);
 
   async function enableNotifications() {
     if (!("Notification" in window)) {
@@ -283,6 +158,7 @@ useEffect(() => {
 
   function updateField(field, value) {
     setForm((previous) => ({ ...previous, [field]: value }));
+    setFieldErrors((previous) => ({ ...previous, [field]: "" }));
   }
 
   function updateTime(index, value) {
@@ -305,14 +181,14 @@ useEffect(() => {
     setError("");
     setMessage("");
 
-    if (!form.medicine_name.trim() || !form.dosage.trim()) {
-      setError("Medicine name and dosage are required.");
-      return;
-    }
+    const validation = validateMedication(form.medicine_name, form.dosage);
+    setFieldErrors(validation.errors);
+    if (Object.keys(validation.errors).length) return;
     if (selectedVerifiedSource && !patientConfirmed) {
       setError("Please review and confirm the medication schedule.");
       return;
     }
+    if (!event.currentTarget.reportValidity()) return;
     if (!form.frequency) {
       setError("Please select the medicine frequency.");
       return;
@@ -337,8 +213,8 @@ useEffect(() => {
 
       const { error: insertError } = await supabase.from("medication_schedules").insert({
         patient_id: authData.user.id,
-        medicine_name: form.medicine_name.trim(),
-        dosage: form.dosage.trim(),
+        medicine_name: validation.name,
+        dosage: validation.dosage,
         frequency: form.frequency,
         times: form.times,
         start_date: form.start_date,
@@ -469,7 +345,7 @@ useEffect(() => {
         <span style={{ fontSize: "13px", color: "#64748b" }}>
           {notificationPermission === "denied" ? "Permission blocked. Allow notifications in browser site settings." :
             notificationPermission === "unsupported" ? "This browser does not support notifications." :
-              notificationPermission === "granted" ? "You will receive dose alerts while this page is open." : "Permission not enabled yet."}
+              notificationPermission === "granted" ? "You will receive dose alerts while MedSage AI is open." : "Permission not enabled yet."}
         </span>
        
       </div>
@@ -523,13 +399,15 @@ useEffect(() => {
         })}
       </div>
 
-      <form onSubmit={handleSave} style={cardStyle}>
+      <form noValidate onSubmit={handleSave} style={cardStyle}>
         <h3>Add New Medicine</h3>
-        <label>Medicine Name</label>
-        <input style={inputStyle} value={form.medicine_name} onChange={(e) => updateField("medicine_name", e.target.value)} placeholder="e.g. Paracetamol" required />
-        <label>Dosage</label>
-        <input style={inputStyle} value={form.dosage} onChange={(e) => updateField("dosage", e.target.value)} placeholder="e.g. 500 mg" required />
+        <label htmlFor="schedule-medicine-name">Medicine Name</label>
+        <input id="schedule-medicine-name" aria-invalid={Boolean(fieldErrors.medicine_name)} aria-describedby="medicine-name-error" style={inputStyle} value={form.medicine_name} onChange={(e) => updateField("medicine_name", e.target.value)} placeholder="e.g. Paracetamol" required />
+        {fieldErrors.medicine_name && <p id="medicine-name-error" role="alert" style={{ color: "#dc2626" }}>{fieldErrors.medicine_name}</p>}
+        <label htmlFor="schedule-dosage">Dosage</label>
+        <input id="schedule-dosage" aria-invalid={Boolean(fieldErrors.dosage)} aria-describedby="dosage-error" style={inputStyle} value={form.dosage} onChange={(e) => updateField("dosage", e.target.value)} placeholder="e.g. 500 mg" required />
 
+        {fieldErrors.dosage && <p id="dosage-error" role="alert" style={{ color: "#dc2626" }}>{fieldErrors.dosage}</p>}
         <label>Available Stock (optional)</label>
         <input type="number" min="0" step="0.01" style={inputStyle} value={form.stock_quantity} onChange={(e) => updateField("stock_quantity", e.target.value)} placeholder="e.g. 30" />
         <label>Stock Unit</label>

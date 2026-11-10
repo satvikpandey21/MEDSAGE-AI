@@ -1,3 +1,4 @@
+import WelcomeProfileModal from "./components/profile/WelcomeProfileModal";
 import { useState, useEffect } from "react";
 import Sidebar from "./components/layout/Sidebar";
 import Topbar from "./components/layout/Topbar";
@@ -313,6 +314,7 @@ const dynamicNavItems = navItems.map((item) => {
 
   return (
     <div className="app-layout">
+      <WelcomeProfileModal key={currentUser.rawId} userId={currentUser.rawId} onNavigate={setActiveNav} />
       {/* 1. Left Sidebar Navigation */}
       <Sidebar
       navItems={dynamicNavItems}
@@ -328,7 +330,7 @@ const dynamicNavItems = navItems.map((item) => {
       {/* 2. Main Application Content Area */}
       <div className="app-main">
         {/* Top Header Bar */}
-       <Topbar
+       <Topbar key={currentUser.rawId}
   onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
   currentUser={currentUser}
   onNavSelect={(navId) => setActiveNav(navId)}
